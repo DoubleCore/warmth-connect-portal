@@ -1,10 +1,10 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ChevronRight, Download, Sparkles, FileText, ClipboardList, Compass, BarChart3, MessageSquare, ChevronDown, ArrowLeft } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
-import { getPaper } from "@/lib/papers";
+import { getPaper, type Paper } from "@/lib/papers";
 
 export const Route = createFileRoute("/library/$paperId")({
-  loader: ({ params }) => {
+  loader: ({ params }): Paper => {
     const paper = getPaper(params.paperId);
     if (!paper) throw notFound();
     return paper;
