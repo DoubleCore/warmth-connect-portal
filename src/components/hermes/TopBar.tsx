@@ -38,9 +38,9 @@ export function TopBar({ active = "Command" }: { active?: "Command" | "Library" 
         <button className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
           <Bell className="h-5 w-5" />
         </button>
-        <button className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
+        <Link to="/settings" className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground" activeProps={{ className: "rounded-lg p-2 bg-secondary text-primary" }}>
           <Settings className="h-5 w-5" />
-        </button>
+        </Link>
         <div className="h-9 w-9 rounded-full ring-2 ring-primary/40" style={{ background: "linear-gradient(135deg,oklch(0.4_0.05_270),oklch(0.6_0.1_290))" }} />
       </div>
     </header>
