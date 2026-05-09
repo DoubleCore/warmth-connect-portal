@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 const tabs = [
   { label: "Command", to: "/" as const },
   { label: "Library", to: "/library" as const },
-  { label: "Workspace", to: "#workspace" as const },
+  { label: "Workspace", to: "/workspace" as const },
 ];
 
 export function TopBar({ active = "Command" }: { active?: "Command" | "Library" | "Workspace" }) {
