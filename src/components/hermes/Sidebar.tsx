@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { to: "/", label: "Command Center", icon: TerminalSquare, route: true },
   { to: "/library", label: "Paper Library", icon: BookOpen, route: true },
-  { to: "#devices", label: "Device Manager", icon: Cpu, route: false },
+  { to: "/workspace", label: "Device Manager", icon: Cpu, route: true },
   { to: "#training", label: "Training Logs", icon: LineChart, route: false },
   { to: "#settings", label: "Settings", icon: Settings, route: false },
 ] as const;
