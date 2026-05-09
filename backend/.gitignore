@@ -1,0 +1,15 @@
+node_modules
+dist
+.env
+.env.local
+*.log
+
+# SQLite
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# PDF 本地存储
+storage/
