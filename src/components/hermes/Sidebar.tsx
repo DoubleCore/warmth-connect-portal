@@ -59,9 +59,13 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto flex flex-col gap-1 pt-6 text-sm text-muted-foreground">
-        <a className="flex items-center gap-3 rounded-lg px-3 py-2 hover:text-sidebar-foreground" href="#">
+        <Link
+          to="/docs"
+          className="flex items-center gap-3 rounded-lg px-3 py-2 hover:text-sidebar-foreground"
+          activeProps={{ className: "flex items-center gap-3 rounded-lg px-3 py-2 bg-sidebar-accent text-sidebar-accent-foreground" }}
+        >
           <HelpCircle className="h-4 w-4" /> Documentation
-        </a>
+        </Link>
         <a className="flex items-center gap-3 rounded-lg px-3 py-2 hover:text-sidebar-foreground" href="#">
           <LifeBuoy className="h-4 w-4" /> Support
         </a>
