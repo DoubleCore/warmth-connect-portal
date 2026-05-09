@@ -8,6 +8,20 @@
       "when": 1778343149467,
       "tag": "0000_colossal_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1778370410276,
+      "tag": "0001_tired_mentor",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1778370410277,
+      "tag": "0002_rag_fts5",
+      "breakpoints": true
     }
   ]
 }

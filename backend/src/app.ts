@@ -11,7 +11,7 @@ import type { ErrorEnvelope } from "@/shared/response.js";
 import { papersRouter } from "@/modules/papers/papers.routes.js";
 import { devicesRouter } from "@/modules/devices/devices.routes.js";
 import { reproductionRouter } from "@/modules/reproduction/reproduction.routes.js";
-import { paperRagRouter, ragRouter } from "@/modules/rag/rag.routes.js";
+import { ragRouter } from "@/modules/rag/rag.routes.js";
 
 function toErrorPayload(
   code: string,
@@ -78,8 +78,7 @@ export function createApp() {
     }),
   );
 
-  // Paper-scoped RAG endpoints live under /api/papers/:paperId/rag/...
-  app.route("/api/papers", paperRagRouter);
+  // Paper detail / analysis / PDF endpoints.
   app.route("/api/papers", papersRouter);
 
   app.route("/api/rag", ragRouter);

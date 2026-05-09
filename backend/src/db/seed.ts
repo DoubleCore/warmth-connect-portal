@@ -1,11 +1,22 @@
 import { db } from "./client.js";
-import { devices, paperAnalysis, paperReproductionRecords, papers } from "./schema.js";
+import {
+  devices,
+  paperAnalysis,
+  paperReproductionRecords,
+  papers,
+  ragPapers,
+} from "./schema.js";
 import { logger } from "@/shared/logger.js";
 
 async function seed() {
+  await seedLegacyPapers();
+  await seedRagPapers();
+}
+
+async function seedLegacyPapers() {
   const existing = await db.select({ id: papers.id }).from(papers).limit(1);
   if (existing.length > 0) {
-    logger.info("Seed skipped: papers table is not empty");
+    logger.info("Seed (papers) skipped: not empty");
     return;
   }
 
@@ -143,7 +154,101 @@ async function seed() {
     startedAt: new Date().toISOString(),
   });
 
-  logger.info("Seed completed successfully");
+  logger.info("Seed (papers) completed");
+}
+
+/**
+ * RAG 知识库种子。
+ *
+ * 这组数据独立于 papers 表，专为 /search FTS5 检索服务。title + abstract 都选
+ * 前端 "Recent" 芯片能直接命中的主题（Attention / MoE / KV cache），方便
+ * 冒烟验证 "点击 recent → 返回结果" 这一最小闭环。
+ */
+async function seedRagPapers() {
+  const existing = await db.select({ id: ragPapers.id }).from(ragPapers).limit(1);
+  if (existing.length > 0) {
+    logger.info("Seed (rag_papers) skipped: not empty");
+    return;
+  }
+
+  await db.insert(ragPapers).values([
+    {
+      title: "Attention Is All You Need",
+      authorsJson: JSON.stringify([
+        "Ashish Vaswani",
+        "Noam Shazeer",
+        "Niki Parmar",
+      ]),
+      venue: "NeurIPS 2017",
+      abstract:
+        "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.",
+    },
+    {
+      title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness",
+      authorsJson: JSON.stringify(["Tri Dao", "Daniel Y. Fu", "Stefano Ermon"]),
+      venue: "NeurIPS 2022",
+      abstract:
+        "We propose FlashAttention, a new attention algorithm that computes exact attention with far fewer memory accesses. We avoid reading and writing the attention matrix to and from HBM. This requires computing the softmax reduction without access to the whole input, and not storing the large intermediate attention matrix for the backward pass.",
+    },
+    {
+      title: "Self-Attention with Relative Position Representations and Theoretical Bounds",
+      authorsJson: JSON.stringify(["Peter Shaw", "Jakob Uszkoreit"]),
+      venue: "NAACL 2018",
+      abstract:
+        "We present an extension of self-attention that incorporates relative position representations and derive bounds on the attention mechanism's expressiveness. Our analysis yields tighter bounds on the number of heads and the hidden dimension needed to approximate arbitrary permutation equivariant functions.",
+    },
+    {
+      title: "GQA: Training Generalized Multi-Query Attention",
+      authorsJson: JSON.stringify(["Joshua Ainslie", "James Lee-Thorp"]),
+      venue: "ArXiv 2023",
+      abstract:
+        "Multi-query attention (MQA) reduces decoder memory bandwidth by sharing key and value heads. We propose grouped-query attention (GQA), an interpolation of multi-head and multi-query attention with a single key and value head per group, achieving quality close to MHA with speed comparable to MQA.",
+    },
+    {
+      title: "Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity",
+      authorsJson: JSON.stringify(["William Fedus", "Barret Zoph", "Noam Shazeer"]),
+      venue: "JMLR 2022",
+      abstract:
+        "In deep learning, models typically reuse the same parameters for all inputs. Mixture of Experts (MoE) defies this and instead selects different parameters for each incoming example. The Switch Transformer simplifies MoE routing by selecting a single expert per token, stabilizing training and dramatically reducing communication cost.",
+    },
+    {
+      title: "Mixture-of-Experts with Expert Choice Routing",
+      authorsJson: JSON.stringify(["Yanqi Zhou", "Tao Lei"]),
+      venue: "NeurIPS 2022",
+      abstract:
+        "We propose a heterogeneous mixture-of-experts model where experts choose tokens rather than tokens choosing experts, leading to perfect load balance and improved routing stability. This addresses the MoE routing stability problem and achieves better downstream task performance under the same compute budget.",
+    },
+    {
+      title: "H2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models",
+      authorsJson: JSON.stringify(["Zhenyu Zhang", "Ying Sheng", "Tianyi Zhou"]),
+      venue: "NeurIPS 2023",
+      abstract:
+        "Deploying large language models at inference time is bottlenecked by KV cache size. We propose Heavy-Hitter Oracle, a KV cache eviction policy that dynamically retains a balance of recent and heavy-hitter tokens. H2O enables significant KV cache compression with minimal quality loss.",
+    },
+    {
+      title: "StreamingLLM: Efficient Streaming Language Models with Attention Sinks",
+      authorsJson: JSON.stringify(["Guangxuan Xiao", "Yuandong Tian"]),
+      venue: "ICLR 2024",
+      abstract:
+        "We enable LLMs to generalize to infinite sequence length without fine-tuning by preserving the first few attention sink tokens together with a sliding window KV cache. StreamingLLM combines attention sinks with KV cache compression and achieves up to 22x speedup over recomputation baselines.",
+    },
+    {
+      title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+      authorsJson: JSON.stringify(["Patrick Lewis", "Ethan Perez", "Aleksandra Piktus"]),
+      venue: "NeurIPS 2020",
+      abstract:
+        "We introduce RAG models, a general-purpose fine-tuning recipe that combines pre-trained parametric and non-parametric memory. Our RAG framework combines a dense vector retriever with a seq2seq generator and outperforms parametric-only and extractive baselines on open-domain question answering.",
+    },
+    {
+      title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+      authorsJson: JSON.stringify(["Jason Wei", "Xuezhi Wang", "Dale Schuurmans"]),
+      venue: "NeurIPS 2022",
+      abstract:
+        "We explore how chain-of-thought prompting, which provides intermediate reasoning steps as part of few-shot exemplars, can improve the ability of large language models to perform complex reasoning. Chain-of-thought prompting substantially improves performance on arithmetic, commonsense, and symbolic reasoning benchmarks.",
+    },
+  ]);
+
+  logger.info("Seed (rag_papers) completed");
 }
 
 seed()

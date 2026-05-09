@@ -28,6 +28,9 @@ const detailQuery = (paperId: string) => ({
 export const Route = createFileRoute("/library/$paperId")({
   loader: async ({ params, context }) => {
     try {
+      // Fetch the detail into the QueryClient cache during SSR so the first
+      // HTML payload already contains the real content — the component below
+      // consumes the same cache entry via useSuspenseQuery.
       await context.queryClient.ensureQueryData(detailQuery(params.paperId));
     } catch (err) {
       if (err instanceof ApiError && err.status === 404) throw notFound();

@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { User, SlidersHorizontal, QrCode, ChevronRight, CircleDot } from "lucide-react";
+import {
+  User,
+  SlidersHorizontal,
+  QrCode,
+  ChevronRight,
+  CircleDot,
+  Pencil,
+} from "lucide-react";
 import { z } from "zod";
 import { Shell } from "@/components/hermes/Shell";
 import { cn } from "@/lib/utils";
@@ -24,6 +31,8 @@ type ProfileFormData = {
   institution: string;
 };
 type ProfileFormErrors = Partial<Record<keyof ProfileFormData, string>>;
+
+const emptyProfile: ProfileFormData = { name: "", email: "", institution: "" };
 
 /** Build a zod schema whose error messages come from the current i18n. */
 function buildProfileSchema(t: (key: MessageKey) => string) {
@@ -83,19 +92,33 @@ function SettingsPage() {
   const darkMode = theme === "dark";
   const zhLocale = locale === "zh";
 
-  // No PII defaults — start blank so each user enters their own values.
-  const [formData, setFormData] = useState<ProfileFormData>({
-    name: "",
-    email: "",
-    institution: "",
-  });
+  // Committed profile — displayed in read-only mode.
+  // No PII defaults; each user enters their own values.
+  const [profile, setProfile] = useState<ProfileFormData>(emptyProfile);
+
+  // Draft state is only used while the form is in edit mode.
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState<ProfileFormData>(emptyProfile);
   const [errors, setErrors] = useState<ProfileFormErrors>({});
   const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const startEditing = () => {
+    setDraft(profile);
+    setErrors({});
+    setSavedAt(null);
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setDraft(profile);
+    setErrors({});
+    setIsEditing(false);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const schema = buildProfileSchema(t);
-    const result = schema.safeParse(formData);
+    const result = schema.safeParse(draft);
     if (!result.success) {
       const nextErrors: ProfileFormErrors = {};
       for (const issue of result.error.issues) {
@@ -107,14 +130,15 @@ function SettingsPage() {
       return;
     }
     setErrors({});
-    setFormData(result.data);
+    setProfile(result.data);
+    setDraft(result.data);
     setSavedAt(Date.now());
+    setIsEditing(false);
   };
 
-  const update = <K extends keyof ProfileFormData>(key: K, value: ProfileFormData[K]) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
+  const updateDraft = <K extends keyof ProfileFormData>(key: K, value: ProfileFormData[K]) => {
+    setDraft((prev) => ({ ...prev, [key]: value }));
     if (errors[key]) setErrors((prev) => ({ ...prev, [key]: undefined }));
-    if (savedAt) setSavedAt(null);
   };
 
   return (
@@ -135,59 +159,106 @@ function SettingsPage() {
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="flex flex-col gap-6">
             {/* Profile */}
-            <form
-              onSubmit={handleSubmit}
-              noValidate
-              className="rounded-2xl border border-border bg-card p-6"
+            <section
               aria-labelledby="profile-heading"
+              className="rounded-2xl border border-border bg-card p-6"
             >
-              <div className="flex items-center gap-2">
-                <User className="h-5 w-5 text-primary" aria-hidden />
-                <h2 id="profile-heading" className="text-lg font-semibold">
-                  {t("settings.profile.heading")}
-                </h2>
-              </div>
-              <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                <Field
-                  label={t("settings.profile.name")}
-                  value={formData.name}
-                  onChange={(v) => update("name", v)}
-                  error={errors.name}
-                  autoComplete="name"
-                />
-                <Field
-                  label={t("settings.profile.email")}
-                  type="email"
-                  value={formData.email}
-                  onChange={(v) => update("email", v)}
-                  error={errors.email}
-                  autoComplete="email"
-                />
-                <div className="sm:col-span-2">
-                  <Field
-                    label={t("settings.profile.institution")}
-                    value={formData.institution}
-                    onChange={(v) => update("institution", v)}
-                    error={errors.institution}
-                    autoComplete="organization"
-                  />
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <User className="h-5 w-5 text-primary" aria-hidden />
+                  <h2 id="profile-heading" className="text-lg font-semibold">
+                    {t("settings.profile.heading")}
+                  </h2>
                 </div>
-              </div>
-              <div className="mt-6 flex items-center justify-end gap-3">
-                {savedAt && (
-                  <span className="text-xs text-[oklch(0.74_0.18_155)]" role="status">
-                    {t("common.saved")}
-                  </span>
+                {!isEditing && (
+                  <div className="flex items-center gap-3">
+                    {savedAt && (
+                      <span className="text-xs text-[oklch(0.74_0.18_155)]" role="status">
+                        {t("common.saved")}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={startEditing}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background/40 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                    >
+                      <Pencil className="h-3.5 w-3.5" aria-hidden />
+                      {t("settings.profile.edit")}
+                    </button>
+                  </div>
                 )}
-                <button
-                  type="submit"
-                  className="rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                  style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
-                >
-                  {t("settings.profile.save")}
-                </button>
               </div>
-            </form>
+
+              {isEditing ? (
+                <form onSubmit={handleSubmit} noValidate className="mt-6">
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    <Field
+                      label={t("settings.profile.name")}
+                      value={draft.name}
+                      onChange={(v) => updateDraft("name", v)}
+                      error={errors.name}
+                      autoComplete="name"
+                    />
+                    <Field
+                      label={t("settings.profile.email")}
+                      type="email"
+                      value={draft.email}
+                      onChange={(v) => updateDraft("email", v)}
+                      error={errors.email}
+                      autoComplete="email"
+                    />
+                    <div className="sm:col-span-2">
+                      <Field
+                        label={t("settings.profile.institution")}
+                        value={draft.institution}
+                        onChange={(v) => updateDraft("institution", v)}
+                        error={errors.institution}
+                        autoComplete="organization"
+                      />
+                    </div>
+                  </div>
+                  <div className="mt-6 flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={cancelEditing}
+                      className="rounded-lg border border-border bg-background/40 px-4 py-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                    >
+                      {t("settings.profile.cancel")}
+                    </button>
+                    <button
+                      type="submit"
+                      className="rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      style={{
+                        background: "var(--gradient-primary)",
+                        boxShadow: "var(--shadow-glow)",
+                      }}
+                    >
+                      {t("settings.profile.save")}
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <dl className="mt-6 grid gap-5 sm:grid-cols-2">
+                  <ReadField
+                    label={t("settings.profile.name")}
+                    value={profile.name}
+                    placeholder={t("settings.profile.empty")}
+                  />
+                  <ReadField
+                    label={t("settings.profile.email")}
+                    value={profile.email}
+                    placeholder={t("settings.profile.empty")}
+                  />
+                  <div className="sm:col-span-2">
+                    <ReadField
+                      label={t("settings.profile.institution")}
+                      value={profile.institution}
+                      placeholder={t("settings.profile.empty")}
+                    />
+                  </div>
+                </dl>
+              )}
+            </section>
 
             {/* Preferences */}
             <section
@@ -253,6 +324,32 @@ function SettingsPage() {
         </div>
       </div>
     </Shell>
+  );
+}
+
+/** Read-only field shown in view mode. */
+function ReadField({
+  label,
+  value,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+}) {
+  const trimmed = value.trim();
+  return (
+    <div>
+      <dt className="text-xs font-medium text-muted-foreground">{label}</dt>
+      <dd
+        className={cn(
+          "mt-2 min-h-[2.625rem] rounded-lg border border-dashed border-border/70 bg-background/30 px-4 py-2.5 text-sm",
+          trimmed ? "text-foreground" : "italic text-muted-foreground/70",
+        )}
+      >
+        {trimmed || placeholder}
+      </dd>
+    </div>
   );
 }
 

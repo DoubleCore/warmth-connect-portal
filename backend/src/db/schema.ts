@@ -75,17 +75,24 @@ export const paperAnalysis = sqliteTable(
 );
 
 /**
- * rag_conversations：RAG 对话会话表
- * 对应设计文档 4.3
+ * rag_papers：独立的 RAG 知识库表（对应 Design_SQLite_Abstract_RAG.md §5）
+ *
+ * 和 `papers` 表刻意解耦：RAG 搜索只需要 title + abstract（以及方便 UI 展示的
+ * authors/venue），不依赖 papers 表里的 pdf/field/复现/分析那套完整档案。
+ *
+ * INTEGER 主键是为了能搭 FTS5 external-content 虚表（rowid 必须是整数）。
+ * FTS5 `rag_papers_fts` 虚表 + 三个同步 trigger 不在 Drizzle schema 里描述，
+ * 放在单独的手写迁移 `0002_rag_fts5.sql` 中。
  */
-export const ragConversations = sqliteTable(
-  "rag_conversations",
+export const ragPapers = sqliteTable(
+  "rag_papers",
   {
-    id: text("id").primaryKey().$defaultFn(newId),
-    paperId: text("paper_id")
-      .notNull()
-      .references(() => papers.id, { onDelete: "cascade" }),
-    title: text("title"),
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    title: text("title").notNull(),
+    abstract: text("abstract").notNull(),
+    // JSON string of string[]；repository 层负责 parse/stringify
+    authorsJson: text("authors_json").notNull().default("[]"),
+    venue: text("venue"),
     createdAt: text("created_at")
       .notNull()
       .default(sql`(CURRENT_TIMESTAMP)`),
@@ -94,29 +101,7 @@ export const ragConversations = sqliteTable(
       .default(sql`(CURRENT_TIMESTAMP)`),
   },
   (t) => ({
-    paperIdx: index("rag_conversations_paper_id_idx").on(t.paperId),
-  }),
-);
-
-/**
- * rag_messages：RAG 对话消息表
- * 对应设计文档 4.4
- */
-export const ragMessages = sqliteTable(
-  "rag_messages",
-  {
-    id: text("id").primaryKey().$defaultFn(newId),
-    conversationId: text("conversation_id")
-      .notNull()
-      .references(() => ragConversations.id, { onDelete: "cascade" }),
-    role: text("role", { enum: ["user", "assistant"] }).notNull(),
-    content: text("content").notNull(),
-    createdAt: text("created_at")
-      .notNull()
-      .default(sql`(CURRENT_TIMESTAMP)`),
-  },
-  (t) => ({
-    conversationIdx: index("rag_messages_conversation_id_idx").on(t.conversationId),
+    titleIdx: index("rag_papers_title_idx").on(t.title),
   }),
 );
 
@@ -181,10 +166,8 @@ export type PaperRow = typeof papers.$inferSelect;
 export type NewPaperRow = typeof papers.$inferInsert;
 export type PaperAnalysisRow = typeof paperAnalysis.$inferSelect;
 export type NewPaperAnalysisRow = typeof paperAnalysis.$inferInsert;
-export type RagConversationRow = typeof ragConversations.$inferSelect;
-export type NewRagConversationRow = typeof ragConversations.$inferInsert;
-export type RagMessageRow = typeof ragMessages.$inferSelect;
-export type NewRagMessageRow = typeof ragMessages.$inferInsert;
+export type RagPaperRow = typeof ragPapers.$inferSelect;
+export type NewRagPaperRow = typeof ragPapers.$inferInsert;
 export type DeviceRow = typeof devices.$inferSelect;
 export type NewDeviceRow = typeof devices.$inferInsert;
 export type ReproductionRecordRow = typeof paperReproductionRecords.$inferSelect;

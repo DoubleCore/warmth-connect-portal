@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sparkles,
   CornerDownLeft,
@@ -7,10 +8,21 @@ import {
   FileText,
   MessageSquare,
   Cpu,
+  Loader2,
+  AlertTriangle,
+  FlaskConical,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { ApiError } from "@/lib/api-client";
+import { listPapers } from "@/api/papers";
+import { listReproductionRecords } from "@/api/reproduction";
+import type { PaperListItem } from "@/types/paper";
+import type { ReproductionRecord, ReproductionStatus } from "@/types/reproduction";
+
+const RECENT_PAPERS_LIMIT = 3;
+const RECENT_RECORDS_LIMIT = 2;
 
 const quickActions = [
   { labelKey: "home.quickAction.searchPapers", icon: Search, to: "/search" as const },
@@ -23,31 +35,21 @@ const quickActions = [
   to: string;
 }[];
 
-const recent = [
-  {
-    titleKey: "home.recent.attention",
-    metaKey: "home.recent.attentionMeta",
-    tagKey: "common.pdf",
-    icon: FileText,
-    accent: "text-muted-foreground",
-    to: { to: "/library" as const, params: undefined },
-  },
-  {
-    titleKey: "home.recent.hermesV2",
-    metaKey: "home.recent.hermesV2Meta",
-    tagKey: "common.task",
-    icon: Sparkles,
-    accent: "text-[oklch(0.74_0.18_155)]",
-    to: { to: "/workspace" as const, params: undefined },
-  },
-] as const satisfies readonly {
-  titleKey: MessageKey;
-  metaKey: MessageKey;
-  tagKey: MessageKey;
-  icon: typeof FileText;
-  accent: string;
-  to: { to: string; params: Record<string, string> | undefined };
-}[];
+const statusLabelKey: Record<ReproductionStatus, MessageKey> = {
+  not_started: "repro.status.not_started",
+  running: "repro.status.running",
+  success: "repro.status.success",
+  failed: "repro.status.failed",
+  paused: "repro.status.paused",
+};
+
+const statusAccent: Record<ReproductionStatus, string> = {
+  not_started: "text-muted-foreground",
+  running: "text-primary",
+  success: "text-[oklch(0.74_0.18_155)]",
+  failed: "text-destructive",
+  paused: "text-muted-foreground",
+};
 
 export function CommandPrompt() {
   const [value, setValue] = useState("");
@@ -113,42 +115,181 @@ export function CommandPrompt() {
         ))}
       </div>
 
-      <div className="mt-12">
-        <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold">{t("home.recentHeading")}</h3>
-          <button type="button" className="text-sm text-primary hover:underline">
-            {t("common.viewAll")}
-          </button>
-        </div>
-        <div className="mt-4 flex flex-col gap-3">
-          {recent.map((r) => {
-            const content = (
-              <>
-                <r.icon className={cn("h-5 w-5", r.accent)} aria-hidden />
-                <div className="flex-1">
-                  <div className="font-medium">{t(r.titleKey)}</div>
-                  <div className="text-xs text-muted-foreground">{t(r.metaKey)}</div>
-                </div>
-                <span className="rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold tracking-wider text-muted-foreground">
-                  {t(r.tagKey)}
-                </span>
-              </>
-            );
-            const cls =
-              "flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/40";
+      <RecentActivity />
+    </div>
+  );
+}
 
-            return r.to.params ? (
-              <Link key={r.titleKey} to={r.to.to} params={r.to.params} className={cls}>
-                {content}
-              </Link>
-            ) : (
-              <Link key={r.titleKey} to={r.to.to} className={cls}>
-                {content}
-              </Link>
-            );
+function RecentActivity() {
+  const { t } = useI18n();
+
+  const papersQuery = useQuery({
+    queryKey: ["papers", { page: 1, pageSize: RECENT_PAPERS_LIMIT }],
+    queryFn: () => listPapers({ page: 1, pageSize: RECENT_PAPERS_LIMIT }),
+  });
+  const recordsQuery = useQuery({
+    queryKey: ["reproduction-records"],
+    queryFn: listReproductionRecords,
+  });
+
+  const isLoading = papersQuery.isLoading || recordsQuery.isLoading;
+  const isError = papersQuery.isError || recordsQuery.isError;
+  const errorObj = papersQuery.error ?? recordsQuery.error;
+
+  const papers = papersQuery.data?.items.slice(0, RECENT_PAPERS_LIMIT) ?? [];
+  const records = recordsQuery.data?.items.slice(0, RECENT_RECORDS_LIMIT) ?? [];
+
+  return (
+    <section className="mt-12">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-semibold">{t("home.recentHeading")}</h3>
+        <Link to="/library" className="text-sm text-primary hover:underline">
+          {t("common.viewAll")}
+        </Link>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-3">
+        {isLoading ? (
+          <SkeletonRows count={3} />
+        ) : isError ? (
+          <ErrorCard
+            message={t("home.recent.loadError", { message: errMsg(errorObj) })}
+            retryLabel={t("home.recent.retry")}
+            onRetry={() => {
+              void papersQuery.refetch();
+              void recordsQuery.refetch();
+            }}
+          />
+        ) : papers.length === 0 && records.length === 0 ? (
+          <EmptyCard text={t("home.recent.empty")} />
+        ) : (
+          <>
+            {papers.map((p) => (
+              <PaperCard key={`paper-${p.id}`} paper={p} />
+            ))}
+            {records.map((r) => (
+              <RecordCard key={`record-${r.id}`} record={r} />
+            ))}
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PaperCard({ paper }: { paper: PaperListItem }) {
+  const { t } = useI18n();
+  const firstAuthor = paper.authors[0] ?? t("home.recent.unknownAuthor");
+  const yearPart =
+    paper.publishedYear !== null ? String(paper.publishedYear) : (paper.source ?? "—");
+
+  return (
+    <Link
+      to="/library/$paperId"
+      params={{ paperId: paper.id }}
+      className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/40"
+    >
+      <FileText className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{paper.title}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {t("home.recent.paperMeta", {
+            authors:
+              firstAuthor + (paper.authors.length > 1 ? t("library.etAl") : ""),
+            year: yearPart,
           })}
         </div>
       </div>
+      <Tag>{t("home.recent.tag.paper")}</Tag>
+    </Link>
+  );
+}
+
+function RecordCard({ record }: { record: ReproductionRecord }) {
+  const { t } = useI18n();
+  const accent = statusAccent[record.status];
+  return (
+    <Link
+      to="/workspace"
+      className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/40"
+    >
+      <FlaskConical className={cn("h-5 w-5 shrink-0", accent)} aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="truncate font-medium">{record.paper.title}</div>
+        <div className="truncate text-xs text-muted-foreground">
+          {t("home.recent.recordMeta", {
+            status: t(statusLabelKey[record.status]),
+            progress: record.progress,
+          })}
+        </div>
+      </div>
+      <Tag>{t("common.task")}</Tag>
+    </Link>
+  );
+}
+
+function Tag({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="shrink-0 rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold tracking-wider text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+function SkeletonRows({ count }: { count: number }) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <div
+          key={i}
+          className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4"
+        >
+          <div className="h-5 w-5 shrink-0 animate-pulse rounded-sm bg-muted" aria-hidden />
+          <div className="flex-1 space-y-2">
+            <div className="h-4 w-2/3 animate-pulse rounded bg-muted" aria-hidden />
+            <div className="h-3 w-1/3 animate-pulse rounded bg-muted/70" aria-hidden />
+          </div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function ErrorCard({
+  message,
+  retryLabel,
+  onRetry,
+}: {
+  message: string;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-destructive/40 bg-destructive/5 px-5 py-4 text-sm text-destructive">
+      <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />
+      <span className="flex-1">{message}</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded-md border border-border bg-background px-3 py-1 text-xs text-foreground hover:bg-secondary"
+      >
+        {retryLabel}
+      </button>
     </div>
   );
+}
+
+function EmptyCard({ text }: { text: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl border border-dashed border-border bg-card/40 px-5 py-6 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 shrink-0 opacity-40" aria-hidden />
+      {text}
+    </div>
+  );
+}
+
+function errMsg(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return "unknown error";
 }
