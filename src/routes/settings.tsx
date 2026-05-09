@@ -109,8 +109,15 @@ function SettingsPage() {
             </p>
 
             <div className="mt-8 grid place-items-center">
-              <div className="rounded-2xl bg-white p-4 shadow-[var(--shadow-glow)]">
-                <FakeQr />
+              <div className="relative rounded-2xl bg-white p-4 shadow-[var(--shadow-glow)]">
+                <div className="blur-md">
+                  <FakeQr />
+                </div>
+                <div className="pointer-events-none absolute inset-0 grid place-items-center">
+                  <span className="rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+                    QR Pending
+                  </span>
+                </div>
               </div>
             </div>
 
