@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { User, SlidersHorizontal, QrCode, ChevronRight, CircleDot } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/hooks/use-theme";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -34,7 +35,7 @@ function Toggle({ on, onChange }: { on: boolean; onChange: (v: boolean) => void 
 }
 
 function SettingsPage() {
-  const [darkMode, setDarkMode] = useState(true);
+  const { isDark, setTheme } = useTheme();
   const [enLocale, setEnLocale] = useState(true);
   const [name, setName] = useState("Dr. Aris Vane");
   const [email, setEmail] = useState("aris.vane@institute.org");
@@ -85,8 +86,8 @@ function SettingsPage() {
                 <PrefRow
                   title="Obsidian Theme (Dark Mode)"
                   desc="Enforce high-contrast dark environment"
-                  on={darkMode}
-                  onChange={setDarkMode}
+                  on={isDark}
+                  onChange={(v) => setTheme(v ? "dark" : "light")}
                 />
                 <PrefRow
                   title="English Localization"
