@@ -1,20 +1,21 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import {
-  ChevronDown,
   FileText,
-  Folder,
-  CalendarDays,
   Search,
-  X,
   ChevronLeft,
   ChevronRight,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { cn } from "@/lib/utils";
-import { papers, type Paper } from "@/lib/papers";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useI18n } from "@/lib/i18n/I18nProvider";
+import { listPapers } from "@/api/papers";
+import { ApiError } from "@/lib/api-client";
+import type { PaperListItem } from "@/types/paper";
 
 export const Route = createFileRoute("/library")({
   component: LibraryPage,
@@ -22,112 +23,31 @@ export const Route = createFileRoute("/library")({
 
 const PAGE_SIZE = 10;
 
-function FilterButton({
-  icon: Icon,
-  label,
-  onClick,
-}: {
-  icon: typeof Folder;
-  label: string;
-  onClick?: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-    >
-      <Icon className="h-4 w-4" aria-hidden />
-      <span>{label}</span>
-      <ChevronDown className="h-4 w-4 opacity-60" aria-hidden />
-    </button>
-  );
-}
-
-function Chip({
-  label,
-  removeLabel,
-  onRemove,
-}: {
-  label: string;
-  removeLabel: string;
-  onRemove: () => void;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 text-xs font-medium text-primary ring-1 ring-primary/30">
-      {label}
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={removeLabel}
-        className="opacity-70 hover:opacity-100"
-      >
-        <X className="h-3 w-3" aria-hidden />
-      </button>
-    </span>
-  );
-}
-
-/**
- * Apply active text query and chip filters to the paper list.
- * Chip filters match against domain (case-insensitive, substring) or an
- * exact year.
- */
-function applyFilters(list: Paper[], query: string, chips: string[]): Paper[] {
-  const q = query.trim().toLowerCase();
-
-  return list.filter((p) => {
-    if (q) {
-      const haystack = [p.title, p.authors.join(" "), p.domains.join(" ")]
-        .join(" ")
-        .toLowerCase();
-      if (!haystack.includes(q)) return false;
-    }
-
-    for (const chip of chips) {
-      const chipLower = chip.toLowerCase();
-      const yearMatch = /^\d{4}$/.test(chip);
-      const matched = yearMatch
-        ? p.year === Number(chip)
-        : p.domains.some((d) => d.toLowerCase().includes(chipLower));
-      if (!matched) return false;
-    }
-
-    return true;
-  });
-}
-
 function LibraryPage() {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState<string[]>(["NLP", "2023"]);
   const [page, setPage] = useState(1);
 
-  const debouncedQuery = useDebounce(query, 250);
+  const debouncedQuery = useDebounce(query, 300);
+  const keyword = debouncedQuery.trim() || undefined;
 
-  const visible = useMemo(
-    () => applyFilters(papers, debouncedQuery, filters),
-    [debouncedQuery, filters],
-  );
+  const { data, isLoading, isError, error, isFetching, refetch } = useQuery({
+    queryKey: ["papers", { keyword, page, pageSize: PAGE_SIZE }],
+    queryFn: () => listPapers({ keyword, page, pageSize: PAGE_SIZE }),
+    placeholderData: keepPreviousData,
+  });
 
-  const totalPages = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  const items = data?.items ?? [];
+  const total = data?.pagination.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
-  const start = (safePage - 1) * PAGE_SIZE;
-  const pageItems = visible.slice(start, start + PAGE_SIZE);
-
-  const removeFilter = (f: string) => {
-    setFilters((prev) => prev.filter((x) => x !== f));
-    setPage(1);
-  };
+  const start = items.length === 0 ? 0 : (safePage - 1) * PAGE_SIZE + 1;
+  const end = start === 0 ? 0 : start + items.length - 1;
 
   const rangeLabel =
-    visible.length === 0
+    total === 0
       ? t("library.noMatch")
-      : t("library.rangeLabel", {
-          start: start + 1,
-          end: start + pageItems.length,
-          total: visible.length,
-        });
+      : t("library.rangeLabel", { start, end, total });
 
   return (
     <Shell active="Library">
@@ -158,39 +78,17 @@ function LibraryPage() {
               autoComplete="off"
             />
           </div>
-          <div className="flex flex-wrap gap-2">
-            <FilterButton icon={Folder} label={t("library.filter.domain")} />
-            <FilterButton icon={Folder} label={t("library.filter.source")} />
-            <FilterButton icon={CalendarDays} label={t("library.filter.year")} />
-          </div>
+          {isFetching && !isLoading && (
+            <div className="flex items-center gap-2 px-3 text-xs text-muted-foreground">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+              {t("library.loading")}
+            </div>
+          )}
         </div>
-
-        {filters.length > 0 && (
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {filters.map((f) => (
-              <Chip
-                key={f}
-                label={f}
-                removeLabel={t("library.filter.remove", { label: f })}
-                onRemove={() => removeFilter(f)}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => {
-                setFilters([]);
-                setPage(1);
-              }}
-              className="text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
-            >
-              {t("library.filter.clearAll")}
-            </button>
-          </div>
-        )}
 
         <div className="mt-6 overflow-hidden rounded-2xl border border-border">
           <div
-            className="grid grid-cols-[1fr_120px_120px_80px_80px] gap-4 border-b border-border bg-card/60 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground"
+            className="grid grid-cols-[1fr_140px_120px_80px_80px] gap-4 border-b border-border bg-card/60 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground"
             role="row"
           >
             <div>{t("library.table.titleAuthors")}</div>
@@ -200,50 +98,21 @@ function LibraryPage() {
             <div className="text-right">{t("library.table.actions")}</div>
           </div>
 
-          {pageItems.length === 0 ? (
+          {isLoading ? (
+            <LoadingRow text={t("library.loading")} />
+          ) : isError ? (
+            <ErrorRow
+              text={t("library.loadError", { message: getErrorMessage(error) })}
+              retryLabel={t("library.retry")}
+              onRetry={() => refetch()}
+            />
+          ) : items.length === 0 ? (
             <div className="grid place-items-center gap-2 bg-card px-6 py-16 text-center">
               <div className="text-sm font-medium">{t("library.emptyTitle")}</div>
               <div className="text-xs text-muted-foreground">{t("library.emptyHint")}</div>
             </div>
           ) : (
-            pageItems.map((p) => (
-              <Link
-                key={p.id}
-                to="/library/$paperId"
-                params={{ paperId: p.id }}
-                className="grid grid-cols-[1fr_120px_120px_80px_80px] items-center gap-4 border-b border-border bg-card px-6 py-4 transition-colors last:border-0 hover:bg-secondary/40"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-md bg-[oklch(0.35_0.15_25)]/30 text-[oklch(0.78_0.18_30)]">
-                    <FileText className="h-4 w-4" aria-hidden />
-                  </span>
-                  <div>
-                    <div className="font-medium">{p.title}</div>
-                    <div className="text-xs text-muted-foreground">
-                      {p.authors[0]}
-                      {p.authors.length > 1 ? t("library.etAl") : ""}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {p.domains.map((d) => (
-                    <span
-                      key={d}
-                      className="rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary ring-1 ring-primary/30"
-                    >
-                      {d}
-                    </span>
-                  ))}
-                </div>
-                <div className="text-sm text-muted-foreground">{p.source}</div>
-                <div className="text-sm text-muted-foreground">{p.year}</div>
-                <div className="text-right">
-                  <span className="text-xs text-primary hover:underline">
-                    {t("library.table.open")}
-                  </span>
-                </div>
-              </Link>
-            ))
+            items.map((p) => <PaperRow key={p.id} paper={p} etAlLabel={t("library.etAl")} openLabel={t("library.table.open")} />)
           )}
         </div>
 
@@ -289,4 +158,90 @@ function LibraryPage() {
       </div>
     </Shell>
   );
+}
+
+function PaperRow({
+  paper,
+  etAlLabel,
+  openLabel,
+}: {
+  paper: PaperListItem;
+  etAlLabel: string;
+  openLabel: string;
+}) {
+  return (
+    <Link
+      to="/library/$paperId"
+      params={{ paperId: paper.id }}
+      className="grid grid-cols-[1fr_140px_120px_80px_80px] items-center gap-4 border-b border-border bg-card px-6 py-4 transition-colors last:border-0 hover:bg-secondary/40"
+    >
+      <div className="flex items-center gap-3 min-w-0">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[oklch(0.35_0.15_25)]/30 text-[oklch(0.78_0.18_30)]">
+          <FileText className="h-4 w-4" aria-hidden />
+        </span>
+        <div className="min-w-0">
+          <div className="truncate font-medium">{paper.title}</div>
+          <div className="truncate text-xs text-muted-foreground">
+            {paper.authors[0] ?? "—"}
+            {paper.authors.length > 1 ? etAlLabel : ""}
+          </div>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {paper.field ? (
+          <span className="rounded-md bg-primary/15 px-2 py-0.5 text-[11px] font-semibold text-primary ring-1 ring-primary/30">
+            {paper.field}
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground/60">—</span>
+        )}
+      </div>
+      <div className="text-sm text-muted-foreground">{paper.source ?? "—"}</div>
+      <div className="text-sm text-muted-foreground">{paper.publishedYear ?? "—"}</div>
+      <div className="text-right">
+        <span className="text-xs text-primary hover:underline">{openLabel}</span>
+      </div>
+    </Link>
+  );
+}
+
+function LoadingRow({ text }: { text: string }) {
+  return (
+    <div className="flex items-center justify-center gap-2 bg-card px-6 py-16 text-sm text-muted-foreground">
+      <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+      {text}
+    </div>
+  );
+}
+
+function ErrorRow({
+  text,
+  retryLabel,
+  onRetry,
+}: {
+  text: string;
+  retryLabel: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div className="grid place-items-center gap-3 bg-card px-6 py-16 text-center">
+      <div className="flex items-center gap-2 text-sm font-medium text-destructive">
+        <AlertTriangle className="h-4 w-4" aria-hidden />
+        {text}
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-foreground hover:bg-secondary"
+      >
+        {retryLabel}
+      </button>
+    </div>
+  );
+}
+
+function getErrorMessage(err: unknown): string {
+  if (err instanceof ApiError) return err.message;
+  if (err instanceof Error) return err.message;
+  return String(err);
 }

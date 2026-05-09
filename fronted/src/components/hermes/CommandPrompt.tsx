@@ -30,7 +30,7 @@ const recent = [
     tagKey: "common.pdf",
     icon: FileText,
     accent: "text-muted-foreground",
-    to: { to: "/library/$paperId" as const, params: { paperId: "attention-is-all-you-need" } },
+    to: { to: "/library" as const, params: undefined },
   },
   {
     titleKey: "home.recent.hermesV2",
