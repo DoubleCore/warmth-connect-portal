@@ -7,7 +7,7 @@ const nav = [
   { to: "/library", label: "Paper Library", icon: BookOpen, route: true },
   { to: "/workspace", label: "Device Manager", icon: Cpu, route: true },
   { to: "/search", label: "RAG Search", icon: Search, route: true },
-  { to: "#settings", label: "Settings", icon: Settings, route: false },
+  { to: "/settings", label: "Settings", icon: Settings, route: true },
 ] as const;
 
 export function Sidebar() {
