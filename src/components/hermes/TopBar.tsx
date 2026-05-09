@@ -1,27 +1,38 @@
 import { Bell, Settings } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { cn } from "@/lib/utils";
 
-const tabs = ["Command", "Library", "Workspace"] as const;
+const tabs = [
+  { label: "Command", to: "/" as const },
+  { label: "Library", to: "/library" as const },
+  { label: "Workspace", to: "#workspace" as const },
+];
 
-export function TopBar({ active = "Command" as (typeof tabs)[number] }) {
+export function TopBar({ active = "Command" }: { active?: "Command" | "Library" | "Workspace" }) {
   return (
     <header className="flex items-center justify-between border-b border-border px-8 py-5">
       <h1 className="text-xl font-semibold tracking-tight">Hermes Research</h1>
       <nav className="flex items-center gap-8">
-        {tabs.map((t) => (
-          <button
-            key={t}
-            className={cn(
-              "relative pb-1 text-sm transition-colors",
-              t === active ? "text-primary" : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t}
-            {t === active && (
-              <span className="absolute -bottom-[1.35rem] left-0 right-0 h-0.5 rounded-full" style={{ background: "var(--gradient-primary)" }} />
-            )}
-          </button>
-        ))}
+        {tabs.map((t) => {
+          const isActive = t.label === active;
+          const cls = cn(
+            "relative pb-1 text-sm transition-colors",
+            isActive ? "text-primary" : "text-muted-foreground hover:text-foreground",
+          );
+          const inner = (
+            <>
+              {t.label}
+              {isActive && (
+                <span className="absolute -bottom-[1.35rem] left-0 right-0 h-0.5 rounded-full" style={{ background: "var(--gradient-primary)" }} />
+              )}
+            </>
+          );
+          return t.to.startsWith("#") ? (
+            <a key={t.label} href={t.to} className={cls}>{inner}</a>
+          ) : (
+            <Link key={t.label} to={t.to} className={cls}>{inner}</Link>
+          );
+        })}
       </nav>
       <div className="flex items-center gap-4">
         <button className="rounded-lg p-2 text-muted-foreground hover:bg-secondary hover:text-foreground">
