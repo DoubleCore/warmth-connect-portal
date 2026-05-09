@@ -4,6 +4,9 @@ import { User, SlidersHorizontal, QrCode, ChevronRight, CircleDot } from "lucide
 import { z } from "zod";
 import { Shell } from "@/components/hermes/Shell";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import { useTheme } from "@/lib/theme/ThemeProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({
@@ -15,17 +18,29 @@ export const Route = createFileRoute("/settings")({
   component: SettingsPage,
 });
 
-const profileSchema = z.object({
-  name: z.string().trim().min(1, "Full name is required").max(120, "Keep it under 120 characters"),
-  email: z.string().trim().email("Enter a valid email address"),
-  institution: z
-    .string()
-    .trim()
-    .min(1, "Institution is required")
-    .max(200, "Keep it under 200 characters"),
-});
-type ProfileFormData = z.infer<typeof profileSchema>;
+type ProfileFormData = {
+  name: string;
+  email: string;
+  institution: string;
+};
 type ProfileFormErrors = Partial<Record<keyof ProfileFormData, string>>;
+
+/** Build a zod schema whose error messages come from the current i18n. */
+function buildProfileSchema(t: (key: MessageKey) => string) {
+  return z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t("settings.profile.error.nameRequired"))
+      .max(120, t("settings.profile.error.nameMax")),
+    email: z.string().trim().email(t("settings.profile.error.emailInvalid")),
+    institution: z
+      .string()
+      .trim()
+      .min(1, t("settings.profile.error.institutionRequired"))
+      .max(200, t("settings.profile.error.institutionMax")),
+  });
+}
 
 function Toggle({
   on,
@@ -36,6 +51,8 @@ function Toggle({
   onChange: (v: boolean) => void;
   label: string;
 }) {
+  // Track: h-6 w-11 (24×44). Knob: h-5 w-5 (20×20). 2px padding each side
+  // => off translates 2px, on translates 22px (= 44 − 20 − 2).
   return (
     <button
       type="button"
@@ -44,24 +61,27 @@ function Toggle({
       aria-label={label}
       onClick={() => onChange(!on)}
       className={cn(
-        "relative h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
         on ? "bg-primary" : "bg-secondary",
       )}
     >
       <span
-        className={cn(
-          "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-          on ? "translate-x-5" : "translate-x-0.5",
-        )}
         aria-hidden
+        className={cn(
+          "pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow ring-0 transition-transform duration-200 ease-in-out",
+          on ? "translate-x-[22px]" : "translate-x-0.5",
+        )}
       />
     </button>
   );
 }
 
 function SettingsPage() {
-  const [darkMode, setDarkMode] = useState(true);
-  const [enLocale, setEnLocale] = useState(true);
+  const { t, locale, setLocale } = useI18n();
+  const { theme, setTheme } = useTheme();
+
+  const darkMode = theme === "dark";
+  const zhLocale = locale === "zh";
 
   // No PII defaults — start blank so each user enters their own values.
   const [formData, setFormData] = useState<ProfileFormData>({
@@ -74,7 +94,8 @@ function SettingsPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const result = profileSchema.safeParse(formData);
+    const schema = buildProfileSchema(t);
+    const result = schema.safeParse(formData);
     if (!result.success) {
       const nextErrors: ProfileFormErrors = {};
       for (const issue of result.error.issues) {
@@ -99,14 +120,17 @@ function SettingsPage() {
   return (
     <Shell active="None">
       <div className="mx-auto w-full max-w-7xl px-8 py-10">
-        <nav className="flex items-center gap-2 text-sm text-muted-foreground" aria-label="Breadcrumb">
+        <nav
+          className="flex items-center gap-2 text-sm text-muted-foreground"
+          aria-label="Breadcrumb"
+        >
           <Link to="/" className="hover:text-foreground">
-            Settings
+            {t("settings.breadcrumbSettings")}
           </Link>
           <ChevronRight className="h-4 w-4" aria-hidden />
-          <span className="text-foreground">Preferences &amp; Connectivity</span>
+          <span className="text-foreground">{t("settings.breadcrumbCurrent")}</span>
         </nav>
-        <h1 className="mt-2 text-4xl font-semibold tracking-tight">System Settings</h1>
+        <h1 className="mt-2 text-4xl font-semibold tracking-tight">{t("settings.title")}</h1>
 
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="flex flex-col gap-6">
@@ -120,19 +144,19 @@ function SettingsPage() {
               <div className="flex items-center gap-2">
                 <User className="h-5 w-5 text-primary" aria-hidden />
                 <h2 id="profile-heading" className="text-lg font-semibold">
-                  Profile Information
+                  {t("settings.profile.heading")}
                 </h2>
               </div>
               <div className="mt-6 grid gap-5 sm:grid-cols-2">
                 <Field
-                  label="Full Name"
+                  label={t("settings.profile.name")}
                   value={formData.name}
                   onChange={(v) => update("name", v)}
                   error={errors.name}
                   autoComplete="name"
                 />
                 <Field
-                  label="Email Address"
+                  label={t("settings.profile.email")}
                   type="email"
                   value={formData.email}
                   onChange={(v) => update("email", v)}
@@ -141,7 +165,7 @@ function SettingsPage() {
                 />
                 <div className="sm:col-span-2">
                   <Field
-                    label="Research Institution"
+                    label={t("settings.profile.institution")}
                     value={formData.institution}
                     onChange={(v) => update("institution", v)}
                     error={errors.institution}
@@ -152,7 +176,7 @@ function SettingsPage() {
               <div className="mt-6 flex items-center justify-end gap-3">
                 {savedAt && (
                   <span className="text-xs text-[oklch(0.74_0.18_155)]" role="status">
-                    Saved
+                    {t("common.saved")}
                   </span>
                 )}
                 <button
@@ -160,7 +184,7 @@ function SettingsPage() {
                   className="rounded-lg px-5 py-2.5 text-sm font-medium text-primary-foreground transition-transform hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
                 >
-                  Save Changes
+                  {t("settings.profile.save")}
                 </button>
               </div>
             </form>
@@ -173,21 +197,21 @@ function SettingsPage() {
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="h-5 w-5 text-primary" aria-hidden />
                 <h2 id="prefs-heading" className="text-lg font-semibold">
-                  Preferences
+                  {t("settings.prefs.heading")}
                 </h2>
               </div>
               <div className="mt-6 space-y-3">
                 <PrefRow
-                  title="Obsidian Theme (Dark Mode)"
-                  desc="Enforce high-contrast dark environment"
+                  title={t("settings.prefs.darkTitle")}
+                  desc={t("settings.prefs.darkDesc")}
                   on={darkMode}
-                  onChange={setDarkMode}
+                  onChange={(next) => setTheme(next ? "dark" : "light")}
                 />
                 <PrefRow
-                  title="English Localization"
-                  desc="Force UI language to English (US)"
-                  on={enLocale}
-                  onChange={setEnLocale}
+                  title={t("settings.prefs.localeTitle")}
+                  desc={t("settings.prefs.localeDesc")}
+                  on={zhLocale}
+                  onChange={(next) => setLocale(next ? "zh" : "en")}
                 />
               </div>
             </section>
@@ -201,12 +225,10 @@ function SettingsPage() {
             <div className="flex items-center gap-2">
               <QrCode className="h-5 w-5 text-primary" aria-hidden />
               <h2 id="feishu-heading" className="text-lg font-semibold">
-                Connect on Feishu
+                {t("settings.feishu.heading")}
               </h2>
             </div>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Scan to join our dedicated support channel and pair your mobile device.
-            </p>
+            <p className="mt-2 text-sm text-muted-foreground">{t("settings.feishu.body")}</p>
 
             <div className="mt-8 grid place-items-center">
               <div className="relative rounded-2xl bg-white p-4 shadow-[var(--shadow-glow)]">
@@ -215,7 +237,7 @@ function SettingsPage() {
                 </div>
                 <div className="pointer-events-none absolute inset-0 grid place-items-center">
                   <span className="rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-                    QR Pending
+                    {t("common.qrPending")}
                   </span>
                 </div>
               </div>
@@ -224,7 +246,7 @@ function SettingsPage() {
             <div className="mt-6 flex justify-center">
               <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 <CircleDot className="h-3.5 w-3.5 text-[oklch(0.74_0.18_155)]" aria-hidden />
-                Device Pairing Ready
+                {t("common.devicePairingReady")}
               </span>
             </div>
           </aside>

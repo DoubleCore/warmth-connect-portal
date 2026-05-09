@@ -13,3 +13,4 @@ data/
 
 # PDF 本地存储
 storage/
+!storage/pdfs/README.md

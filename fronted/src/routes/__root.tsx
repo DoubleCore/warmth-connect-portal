@@ -9,6 +9,8 @@ import {
 } from "@tanstack/react-router";
 
 import appCss from "../styles.css?url";
+import { ThemeProvider } from "@/lib/theme/ThemeProvider";
+import { I18nProvider, useI18n } from "@/lib/i18n/I18nProvider";
 
 function NotFoundComponent() {
   return (
@@ -73,10 +75,17 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Hermes AI — Research Command Center" },
-      { name: "description", content: "Hermes AI: command center for research, paper analysis, RAG chat, and model training." },
+      {
+        name: "description",
+        content:
+          "Hermes AI: command center for research, paper analysis, RAG chat, and model training.",
+      },
       { name: "author", content: "Hermes AI" },
       { property: "og:title", content: "Hermes AI — Research Command Center" },
-      { property: "og:description", content: "Command center for research, paper analysis, RAG chat, and model training." },
+      {
+        property: "og:description",
+        content: "Command center for research, paper analysis, RAG chat, and model training.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
@@ -95,6 +104,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
 });
 
 function RootShell({ children }: { children: React.ReactNode }) {
+  // `dark` matches ThemeProvider's default state so SSR output and first
+  // client render agree; the provider re-applies stored preference on mount.
   return (
     <html lang="en" className="dark">
       <head>
@@ -113,7 +124,19 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <I18nProvider>
+        <ThemeProvider>
+          <LangSync />
+          <Outlet />
+        </ThemeProvider>
+      </I18nProvider>
     </QueryClientProvider>
   );
+}
+
+/** Keeps <html lang> in sync with the active locale without touching the SSR
+ *  shell markup (which must stay deterministic). */
+function LangSync() {
+  useI18n();
+  return null;
 }

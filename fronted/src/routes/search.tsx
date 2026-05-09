@@ -4,6 +4,7 @@ import { Search, CornerDownLeft, BookOpen, Database, Quote } from "lucide-react"
 import { z } from "zod";
 import { Shell } from "@/components/hermes/Shell";
 import { useDebounce } from "@/hooks/use-debounce";
+import { useI18n } from "@/lib/i18n/I18nProvider";
 
 const searchSchema = z.object({
   q: z.string().optional(),
@@ -54,10 +55,11 @@ const results = [
 ];
 
 function RagSearchPage() {
+  const { t } = useI18n();
   const { q: urlQuery } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
-  const [q, setQ] = useState(urlQuery ?? "Find common themes in LLM efficiency");
+  const [q, setQ] = useState(urlQuery ?? "");
   const debouncedQ = useDebounce(q, 400);
 
   // Keep URL in sync with debounced query (shareable deep links).
@@ -71,7 +73,6 @@ function RagSearchPage() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Debounced effect handles URL sync; submit just blurs & ensures trigger.
     (e.currentTarget as HTMLFormElement).querySelector<HTMLInputElement>("input")?.blur();
   };
 
@@ -79,18 +80,11 @@ function RagSearchPage() {
     <Shell active="None">
       <div className="mx-auto w-full max-w-7xl px-8 py-12">
         <div className="mx-auto max-w-3xl text-center">
-          <h1 className="text-5xl font-semibold tracking-tight">Search across all papers…</h1>
-          <p className="mt-4 text-muted-foreground">
-            Query the global corpus using natural language. Semantic retrieval powered by
-            Hermes-7B.
-          </p>
+          <h1 className="text-5xl font-semibold tracking-tight">{t("search.pageTitle")}</h1>
+          <p className="mt-4 text-muted-foreground">{t("search.pageSubtitle")}</p>
         </div>
 
-        <form
-          onSubmit={handleSubmit}
-          className="mx-auto mt-10 max-w-3xl"
-          role="search"
-        >
+        <form onSubmit={handleSubmit} className="mx-auto mt-10 max-w-3xl" role="search">
           <div className="group relative">
             <div
               className="absolute -inset-px rounded-2xl opacity-60 blur-md transition-opacity group-focus-within:opacity-100"
@@ -100,19 +94,19 @@ function RagSearchPage() {
             <div className="relative flex items-center gap-3 rounded-2xl border border-border bg-card px-5 py-4">
               <Search className="h-5 w-5 text-primary" aria-hidden />
               <label htmlFor="rag-query" className="sr-only">
-                RAG search query
+                {t("search.inputLabel")}
               </label>
               <input
                 id="rag-query"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
                 className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-                placeholder="Find common themes in LLM efficiency"
+                placeholder={t("search.inputPlaceholder")}
                 autoComplete="off"
               />
               <button
                 type="submit"
-                aria-label="Run search"
+                aria-label={t("search.submit")}
                 className="rounded-lg bg-secondary p-2 text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
                 disabled={!q.trim()}
               >
@@ -123,7 +117,7 @@ function RagSearchPage() {
 
           <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
             <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Recent
+              {t("search.recent")}
             </span>
             {recents.map((r) => (
               <button
@@ -141,9 +135,11 @@ function RagSearchPage() {
         <div className="mt-14 grid gap-6 lg:grid-cols-[1fr_300px]">
           <section>
             <div className="flex items-end justify-between">
-              <h2 className="text-2xl font-semibold tracking-tight">Synthesized Results</h2>
+              <h2 className="text-2xl font-semibold tracking-tight">
+                {t("search.resultsHeading")}
+              </h2>
               <span className="text-sm text-muted-foreground">
-                Top {results.length} sources retrieved
+                {t("search.resultsCount", { count: results.length })}
               </span>
             </div>
 
@@ -168,7 +164,7 @@ function RagSearchPage() {
                           •
                         </span>
                         <span className="rounded-md bg-secondary px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
-                          Relevance: {r.relevance.toFixed(2)}
+                          {t("search.relevance", { value: r.relevance.toFixed(2) })}
                         </span>
                       </div>
                     </div>
@@ -177,7 +173,7 @@ function RagSearchPage() {
                       className="flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium text-primary-foreground transition-transform hover:scale-105"
                       style={{ background: "var(--gradient-primary)" }}
                     >
-                      <BookOpen className="h-3.5 w-3.5" aria-hidden /> View Source
+                      <BookOpen className="h-3.5 w-3.5" aria-hidden /> {t("search.viewSource")}
                     </button>
                   </div>
                   <blockquote className="mt-4 rounded-xl border-l-2 border-primary/60 bg-secondary/40 p-4 text-sm leading-relaxed text-muted-foreground">
@@ -193,25 +189,25 @@ function RagSearchPage() {
             <div className="rounded-2xl border border-border bg-card p-5">
               <div className="flex items-center gap-2">
                 <Database className="h-5 w-5 text-primary" aria-hidden />
-                <h3 className="text-lg font-semibold">Search Scope</h3>
+                <h3 className="text-lg font-semibold">{t("search.scope.heading")}</h3>
               </div>
 
               <div className="mt-5 space-y-4">
                 <div className="rounded-xl border border-border bg-background/40 p-4">
                   <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Papers Indexed
+                    {t("search.scope.papersIndexed")}
                   </div>
                   <div className="mt-1 text-3xl font-semibold tabular-nums">245</div>
                 </div>
                 <div className="rounded-xl border border-border bg-background/40 p-4">
                   <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Total Tokens
+                    {t("search.scope.totalTokens")}
                   </div>
                   <div className="mt-1 text-3xl font-semibold tabular-nums">14.2M</div>
                 </div>
                 <div className="rounded-xl border border-border bg-background/40 p-4">
                   <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                    Active Collections
+                    {t("search.scope.activeCollections")}
                   </div>
                   <div className="mt-3 flex flex-wrap gap-1.5">
                     {["Core ML", "Efficiency"].map((c) => (
@@ -223,7 +219,7 @@ function RagSearchPage() {
                       </span>
                     ))}
                     <span className="rounded-md border border-dashed border-border px-2 py-1 text-xs text-muted-foreground">
-                      +3 more
+                      {t("search.scope.moreCollections", { count: 3 })}
                     </span>
                   </div>
                 </div>

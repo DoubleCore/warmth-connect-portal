@@ -7,14 +7,16 @@
 /*
  * Design system definition.
  *
- * The @theme inline block maps CSS custom properties to Tailwind utility
- * classes (e.g. --color-primary -> bg-primary, text-primary).
+ * `:root` holds the LIGHT theme (white background, blue gradient).
+ * `.dark` holds the DARK theme (Hermes AI obsidian + purple gradient).
  *
- * The :root and .dark blocks define the actual color values using oklch.
+ * The default app applies the `dark` class on <html>; `ThemeProvider`
+ * swaps between `dark` and `light` at runtime from user preference.
+ *
  * All colors MUST use oklch format.
  *
  * To add a new semantic color:
- * 1. Add the variable to :root (light value) and .dark (dark value)
+ * 1. Add the variable to `:root` (light value) and `.dark` (dark value)
  * 2. Register it in @theme inline as --color-<name>: var(--<name>)
  */
 
@@ -61,9 +63,49 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* Light theme — white background, blue gradient. */
 :root {
   --radius: 0.625rem;
-  /* Hermes AI dark theme */
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.18 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.18 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.18 0.02 260);
+  --primary: oklch(0.55 0.18 250);
+  --primary-foreground: oklch(0.99 0 0);
+  --primary-glow: oklch(0.7 0.16 230);
+  --secondary: oklch(0.96 0.01 245);
+  --secondary-foreground: oklch(0.22 0.03 260);
+  --muted: oklch(0.965 0.008 245);
+  --muted-foreground: oklch(0.5 0.025 260);
+  --accent: oklch(0.55 0.18 250);
+  --accent-foreground: oklch(0.99 0 0);
+  --success: oklch(0.65 0.18 155);
+  --destructive: oklch(0.6 0.22 27);
+  --destructive-foreground: oklch(0.99 0 0);
+  --border: oklch(0.9 0.012 245);
+  --input: oklch(0.94 0.008 245);
+  --ring: oklch(0.55 0.18 250);
+  --gradient-primary: linear-gradient(135deg, oklch(0.55 0.18 250), oklch(0.7 0.14 220));
+  --shadow-glow: 0 0 40px -10px oklch(0.55 0.18 250 / 0.3);
+  --chart-1: oklch(0.55 0.18 250);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.5 0.15 220);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.98 0.005 245);
+  --sidebar-foreground: oklch(0.2 0.02 260);
+  --sidebar-primary: oklch(0.55 0.18 250);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.94 0.02 245);
+  --sidebar-accent-foreground: oklch(0.4 0.15 245);
+  --sidebar-border: oklch(0.9 0.012 245);
+  --sidebar-ring: oklch(0.55 0.18 250);
+}
+
+/* Dark theme — Hermes obsidian + purple gradient. */
+.dark {
   --background: oklch(0.13 0.01 270);
   --foreground: oklch(0.98 0.005 270);
   --card: oklch(0.17 0.012 270);
@@ -100,41 +142,6 @@
   --sidebar-accent-foreground: oklch(0.78 0.15 290);
   --sidebar-border: oklch(0.22 0.012 270);
   --sidebar-ring: oklch(0.62 0.22 290);
-}
-
-.dark {
-  --background: oklch(0.129 0.042 264.695);
-  --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.208 0.042 265.755);
-  --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.208 0.042 265.755);
-  --popover-foreground: oklch(0.984 0.003 247.858);
-  --primary: oklch(0.929 0.013 255.508);
-  --primary-foreground: oklch(0.208 0.042 265.755);
-  --secondary: oklch(0.279 0.041 260.031);
-  --secondary-foreground: oklch(0.984 0.003 247.858);
-  --muted: oklch(0.279 0.041 260.031);
-  --muted-foreground: oklch(0.704 0.04 256.788);
-  --accent: oklch(0.279 0.041 260.031);
-  --accent-foreground: oklch(0.984 0.003 247.858);
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.984 0.003 247.858);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.551 0.027 264.364);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.208 0.042 265.755);
-  --sidebar-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-accent: oklch(0.279 0.041 260.031);
-  --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.551 0.027 264.364);
 }
 
 @layer base {

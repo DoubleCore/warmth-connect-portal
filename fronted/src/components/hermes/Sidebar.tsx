@@ -10,16 +10,23 @@ import {
   LifeBuoy,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n/I18nProvider";
+import type { MessageKey } from "@/lib/i18n/messages";
 
 const nav = [
-  { to: "/", label: "Command Center", icon: TerminalSquare },
-  { to: "/library", label: "Paper Library", icon: BookOpen },
-  { to: "/workspace", label: "Device Manager", icon: Cpu },
-  { to: "/search", label: "RAG Search", icon: Search },
-  { to: "/settings", label: "Settings", icon: Settings },
-] as const;
+  { to: "/", labelKey: "sidebar.commandCenter", icon: TerminalSquare },
+  { to: "/library", labelKey: "sidebar.paperLibrary", icon: BookOpen },
+  { to: "/workspace", labelKey: "sidebar.deviceManager", icon: Cpu },
+  { to: "/search", labelKey: "sidebar.ragSearch", icon: Search },
+  { to: "/settings", labelKey: "sidebar.settings", icon: Settings },
+] as const satisfies readonly {
+  to: string;
+  labelKey: MessageKey;
+  icon: typeof TerminalSquare;
+}[];
 
 export function Sidebar() {
+  const { t } = useI18n();
   return (
     <aside className="hidden lg:flex w-72 shrink-0 flex-col border-r border-sidebar-border bg-sidebar px-5 py-6">
       <div className="flex items-center gap-3">
@@ -31,29 +38,31 @@ export function Sidebar() {
           H
         </div>
         <div>
-          <div className="font-semibold tracking-tight text-sidebar-foreground">Hermes AI</div>
+          <div className="font-semibold tracking-tight text-sidebar-foreground">
+            {t("common.appName")}
+          </div>
           <div className="flex items-center gap-1.5 text-xs text-[oklch(0.74_0.18_155)]">
             <span
               className="h-1.5 w-1.5 rounded-full bg-[oklch(0.74_0.18_155)] animate-pulse"
               aria-hidden
             />
-            System Active
+            {t("common.systemActive")}
           </div>
         </div>
       </div>
 
       <button
         type="button"
-        aria-label="Start a new research project"
+        aria-label={t("sidebar.newResearch")}
         className="mt-8 flex items-center justify-center gap-2 rounded-xl py-3 font-medium text-primary-foreground transition-transform hover:scale-[1.02] active:scale-[0.98]"
         style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
       >
         <Plus className="h-4 w-4" aria-hidden />
-        New Research
+        {t("sidebar.newResearch")}
       </button>
 
-      <nav className="mt-6 flex flex-col gap-1" aria-label="Main">
-        {nav.map(({ to, label, icon: Icon }) => {
+      <nav className="mt-6 flex flex-col gap-1" aria-label={t("sidebar.primaryNavLabel")}>
+        {nav.map(({ to, labelKey, icon: Icon }) => {
           const baseCls =
             "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground";
           return (
@@ -70,7 +79,7 @@ export function Sidebar() {
               }}
             >
               <Icon className="h-4 w-4" aria-hidden />
-              {label}
+              {t(labelKey)}
             </Link>
           );
         })}
@@ -85,13 +94,13 @@ export function Sidebar() {
               "flex items-center gap-3 rounded-lg px-3 py-2 bg-sidebar-accent text-sidebar-accent-foreground",
           }}
         >
-          <HelpCircle className="h-4 w-4" aria-hidden /> Documentation
+          <HelpCircle className="h-4 w-4" aria-hidden /> {t("sidebar.documentation")}
         </Link>
         <a
           className="flex items-center gap-3 rounded-lg px-3 py-2 hover:text-sidebar-foreground"
           href="#"
         >
-          <LifeBuoy className="h-4 w-4" aria-hidden /> Support
+          <LifeBuoy className="h-4 w-4" aria-hidden /> {t("sidebar.support")}
         </a>
       </div>
     </aside>
