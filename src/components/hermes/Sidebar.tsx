@@ -1,12 +1,12 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { Plus, TerminalSquare, BookOpen, Cpu, LineChart, Settings, HelpCircle, LifeBuoy } from "lucide-react";
+import { Plus, TerminalSquare, BookOpen, Cpu, Search, Settings, HelpCircle, LifeBuoy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { to: "/", label: "Command Center", icon: TerminalSquare, route: true },
   { to: "/library", label: "Paper Library", icon: BookOpen, route: true },
   { to: "/workspace", label: "Device Manager", icon: Cpu, route: true },
-  { to: "#training", label: "Training Logs", icon: LineChart, route: false },
+  { to: "/search", label: "RAG Search", icon: Search, route: true },
   { to: "#settings", label: "Settings", icon: Settings, route: false },
 ] as const;
 
