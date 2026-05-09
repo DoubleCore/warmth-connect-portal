@@ -1,29 +1,13 @@
 import { useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { ChevronDown, FileText, Folder, CalendarDays, Search, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { cn } from "@/lib/utils";
+import { papers } from "@/lib/papers";
 
 export const Route = createFileRoute("/library")({
   component: LibraryPage,
 });
-
-type Paper = {
-  title: string;
-  authors: string;
-  domains: string[];
-  source: string;
-  year: number;
-};
-
-const papers: Paper[] = [
-  { title: "Attention Is All You Need", authors: "Vaswani et al.", domains: ["NLP"], source: "NeurIPS", year: 2017 },
-  { title: "Language Models are Few-Shot Learners", authors: "Brown et al.", domains: ["NLP", "LLM"], source: "NeurIPS", year: 2020 },
-  { title: "Deep Residual Learning for Image Recognition", authors: "He et al.", domains: ["CV"], source: "CVPR", year: 2016 },
-  { title: "BERT: Pre-training of Deep Bidirectional Transformers", authors: "Devlin et al.", domains: ["NLP"], source: "NAACL", year: 2019 },
-  { title: "An Image is Worth 16x16 Words", authors: "Dosovitskiy et al.", domains: ["CV"], source: "ICLR", year: 2021 },
-  { title: "LLaMA: Open and Efficient Foundation LMs", authors: "Touvron et al.", domains: ["LLM"], source: "arXiv", year: 2023 },
-];
 
 function FilterButton({ icon: Icon, label }: { icon: typeof Folder; label: string }) {
   return (
@@ -52,7 +36,12 @@ function LibraryPage() {
   const [page, setPage] = useState(1);
 
   const visible = useMemo(
-    () => papers.filter((p) => p.title.toLowerCase().includes(query.toLowerCase()) || p.authors.toLowerCase().includes(query.toLowerCase())),
+    () =>
+      papers.filter(
+        (p) =>
+          p.title.toLowerCase().includes(query.toLowerCase()) ||
+          p.authors.join(" ").toLowerCase().includes(query.toLowerCase()),
+      ),
     [query],
   );
 
@@ -103,8 +92,10 @@ function LibraryPage() {
             <div className="text-right">Actions</div>
           </div>
           {visible.map((p) => (
-            <div
-              key={p.title}
+            <Link
+              key={p.id}
+              to="/library/$paperId"
+              params={{ paperId: p.id }}
               className="grid grid-cols-[1fr_120px_120px_80px_80px] items-center gap-4 border-b border-border bg-card px-6 py-4 transition-colors last:border-0 hover:bg-secondary/40"
             >
               <div className="flex items-center gap-3">
@@ -113,7 +104,7 @@ function LibraryPage() {
                 </span>
                 <div>
                   <div className="font-medium">{p.title}</div>
-                  <div className="text-xs text-muted-foreground">{p.authors}</div>
+                  <div className="text-xs text-muted-foreground">{p.authors[0]} et al.</div>
                 </div>
               </div>
               <div className="flex flex-wrap gap-1">
@@ -126,9 +117,9 @@ function LibraryPage() {
               <div className="text-sm text-muted-foreground">{p.source}</div>
               <div className="text-sm text-muted-foreground">{p.year}</div>
               <div className="text-right">
-                <button className="text-xs text-primary hover:underline">Open</button>
+                <span className="text-xs text-primary hover:underline">Open</span>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
 
