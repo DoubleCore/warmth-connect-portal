@@ -1,12 +1,13 @@
 import { useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Sparkles, CornerDownLeft, Search, FileText, MessageSquare, Cpu } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const quickActions = [
-  { label: "Search Papers", icon: Search },
-  { label: "Analyze PDF", icon: FileText },
-  { label: "Chat with RAG", icon: MessageSquare },
-  { label: "Manage Training", icon: Cpu },
+  { label: "Search Papers", icon: Search, to: "/" as const },
+  { label: "Analyze PDF", icon: FileText, to: "/library" as const },
+  { label: "Chat with RAG", icon: MessageSquare, to: "/search" as const },
+  { label: "Manage Training", icon: Cpu, to: "/workspace" as const },
 ];
 
 const recent = [
@@ -55,16 +56,17 @@ export function CommandPrompt() {
       </div>
 
       <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {quickActions.map(({ label, icon: Icon }) => (
-          <button
+        {quickActions.map(({ label, icon: Icon, to }) => (
+          <Link
             key={label}
+            to={to}
             className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-4 py-6 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-glow)]"
           >
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
               <Icon className="h-5 w-5" />
             </span>
             <span className="text-sm font-medium">{label}</span>
-          </button>
+          </Link>
         ))}
       </div>
 
