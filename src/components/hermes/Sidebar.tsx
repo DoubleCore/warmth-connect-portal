@@ -1,14 +1,14 @@
-import { Link, useLocation } from "@tanstack/react-router";
+import { useLocation } from "@tanstack/react-router";
 import { Plus, TerminalSquare, BookOpen, Cpu, LineChart, Settings, HelpCircle, LifeBuoy } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const nav = [
   { to: "/", label: "Command Center", icon: TerminalSquare },
-  { to: "/library", label: "Paper Library", icon: BookOpen },
-  { to: "/devices", label: "Device Manager", icon: Cpu },
-  { to: "/training", label: "Training Logs", icon: LineChart },
-  { to: "/settings", label: "Settings", icon: Settings },
-] as const;
+  { to: "#library", label: "Paper Library", icon: BookOpen },
+  { to: "#devices", label: "Device Manager", icon: Cpu },
+  { to: "#training", label: "Training Logs", icon: LineChart },
+  { to: "#settings", label: "Settings", icon: Settings },
+];
 
 export function Sidebar() {
   const { pathname } = useLocation();
@@ -39,9 +39,9 @@ export function Sidebar() {
         {nav.map(({ to, label, icon: Icon }) => {
           const active = pathname === to;
           return (
-            <Link
+            <a
               key={to}
-              to={to}
+              href={to}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
                 active
@@ -51,7 +51,7 @@ export function Sidebar() {
             >
               <Icon className="h-4 w-4" />
               {label}
-            </Link>
+            </a>
           );
         })}
       </nav>
