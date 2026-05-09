@@ -91,3 +91,35 @@ backend/
 - `papers.authors` 以 JSON 字符串存储在 SQLite，仓储层自动 parse，对外暴露 `string[]`。
 - PDF 下载优先读取本地 `PDF_STORAGE_DIR/<pdfStoragePath>`，不存在则重定向到远端 `pdfUrl`。
 - UUID 在应用层通过 `crypto.randomUUID()` 生成。
+
+## 响应契约
+
+所有业务接口都使用统一信封，便于前端做类型收敛。
+
+### 成功响应
+
+```json
+{ "success": true, "data": <payload> }
+```
+
+特例：
+- `DELETE` 成功返回 `204 No Content`，无响应体。
+- `GET /api/papers/:id/pdf` 返回二进制流或 302 重定向，不使用信封。
+
+### 错误响应
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "NOT_FOUND" | "VALIDATION_ERROR" | "CONFLICT" | "HTTP_ERROR" | "INTERNAL_ERROR",
+    "message": "human-readable message",
+    "details": "optional, e.g. zod field errors",
+    "requestId": "same as X-Request-Id response header"
+  }
+}
+```
+
+### 请求追踪
+
+每个请求都带 `X-Request-Id` 响应头。客户端也可以通过请求头主动指定该 id，后端会透传。服务端日志里每条记录都带同一个 `requestId`，方便从前端错误弹窗直接定位后端日志。

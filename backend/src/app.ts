@@ -1,39 +1,84 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger as honoLogger } from "hono/logger";
+import { requestId } from "hono/request-id";
 import { ZodError } from "zod";
+import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { corsOrigins, env } from "@/config/env.js";
+import type { AppEnv } from "@/shared/context.js";
 import { AppError } from "@/shared/errors.js";
-import { logger } from "@/shared/logger.js";
+import { baseLogger } from "@/shared/logger.js";
+import type { ErrorEnvelope } from "@/shared/response.js";
 import { papersRouter } from "@/modules/papers/papers.routes.js";
 import { devicesRouter } from "@/modules/devices/devices.routes.js";
 import { reproductionRouter } from "@/modules/reproduction/reproduction.routes.js";
 import { paperRagRouter, ragRouter } from "@/modules/rag/rag.routes.js";
 
+function toErrorPayload(
+  code: string,
+  message: string,
+  requestId: string,
+  details?: unknown,
+): ErrorEnvelope {
+  const error: ErrorEnvelope["error"] = { code, message };
+  if (details !== undefined) error.details = details;
+  // Surface requestId on the error so clients can report issues without
+  // needing to parse response headers.
+  (error as Record<string, unknown>).requestId = requestId;
+  return { success: false, error };
+}
+
 export function createApp() {
-  const app = new Hono();
+  const app = new Hono<AppEnv>();
 
   app.use(
     "*",
     cors({
       origin: corsOrigins === "*" ? "*" : corsOrigins,
-      allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-      allowHeaders: ["Content-Type", "Authorization"],
+      allowMethods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization", "X-Request-Id"],
+      exposeHeaders: ["X-Request-Id"],
       credentials: corsOrigins !== "*",
     }),
   );
 
-  if (env.NODE_ENV !== "test") {
-    app.use("*", honoLogger((message) => logger.info(message)));
-  }
+  // Generate / propagate X-Request-Id. Hono writes it to c.get("requestId")
+  // and automatically mirrors the header in the response.
+  app.use("*", requestId());
+
+  // Per-request child logger + structured access log.
+  app.use("*", async (c, next) => {
+    const rid = c.get("requestId");
+    const reqLogger = baseLogger.child({ requestId: rid });
+    c.set("logger", reqLogger);
+
+    const start = Date.now();
+    const { method } = c.req;
+    const path = c.req.path;
+
+    try {
+      await next();
+    } finally {
+      const durationMs = Date.now() - start;
+      const status = c.res.status;
+      if (env.NODE_ENV !== "test") {
+        reqLogger.info({ method, path, status, durationMs }, "request");
+      }
+    }
+  });
 
   app.get("/health", (c) =>
-    c.json({ status: "ok", uptime: process.uptime(), env: env.NODE_ENV }),
+    c.json({
+      success: true,
+      data: {
+        status: "ok",
+        uptime: process.uptime(),
+        env: env.NODE_ENV,
+        requestId: c.get("requestId"),
+      },
+    }),
   );
 
   // Paper-scoped RAG endpoints live under /api/papers/:paperId/rag/...
-  // so mount the paper-rag router before the generic papers router is matched
-  // for those paths. Hono picks routes by path order, so both work under /api/papers.
   app.route("/api/papers", paperRagRouter);
   app.route("/api/papers", papersRouter);
 
@@ -41,44 +86,48 @@ export function createApp() {
   app.route("/api/devices", devicesRouter);
   app.route("/api/reproduction-records", reproductionRouter);
 
-  app.notFound((c) => c.json({ error: { code: "NOT_FOUND", message: "Route not found" } }, 404));
+  app.notFound((c) => {
+    const rid = c.get("requestId");
+    return c.json<ErrorEnvelope>(
+      toErrorPayload("NOT_FOUND", "Route not found", rid),
+      404,
+    );
+  });
 
   app.onError((err, c) => {
+    const rid = c.get("requestId");
+    const reqLogger = c.get("logger") ?? baseLogger;
+
     if (err instanceof AppError) {
-      return c.json(
-        { error: { code: err.code, message: err.message, details: err.details } },
-        err.statusCode as Parameters<typeof c.json>[1],
+      return c.json<ErrorEnvelope>(
+        toErrorPayload(err.code, err.message, rid, err.details),
+        err.statusCode as ContentfulStatusCode,
       );
     }
+
     if (err instanceof ZodError) {
-      return c.json(
-        {
-          error: {
-            code: "VALIDATION_ERROR",
-            message: "Invalid request",
-            details: err.flatten(),
-          },
-        },
+      return c.json<ErrorEnvelope>(
+        toErrorPayload("VALIDATION_ERROR", "Invalid request", rid, err.flatten()),
         400,
       );
     }
-    // Hono's HTTPException has status
+
     const status = (err as { status?: number }).status;
     if (typeof status === "number" && status >= 400 && status < 600) {
-      logger.warn({ err, status }, "HTTP error");
-      return c.json(
-        { error: { code: "HTTP_ERROR", message: err.message } },
-        status as Parameters<typeof c.json>[1],
+      reqLogger.warn({ err, status }, "HTTP error");
+      return c.json<ErrorEnvelope>(
+        toErrorPayload("HTTP_ERROR", err.message, rid),
+        status as ContentfulStatusCode,
       );
     }
-    logger.error({ err }, "Unhandled error");
-    return c.json(
-      {
-        error: {
-          code: "INTERNAL_ERROR",
-          message: env.NODE_ENV === "development" ? err.message : "Internal server error",
-        },
-      },
+
+    reqLogger.error({ err }, "Unhandled error");
+    return c.json<ErrorEnvelope>(
+      toErrorPayload(
+        "INTERNAL_ERROR",
+        env.NODE_ENV === "development" ? err.message : "Internal server error",
+        rid,
+      ),
       500,
     );
   });

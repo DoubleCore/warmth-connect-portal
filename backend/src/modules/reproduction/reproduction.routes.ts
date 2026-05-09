@@ -1,32 +1,33 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { createRouter } from "@/shared/context.js";
+import { created, ok } from "@/shared/response.js";
+import { zv } from "@/shared/validator.js";
 import {
   createReproductionSchema,
   updateReproductionSchema,
 } from "./reproduction.dto.js";
 import * as service from "./reproduction.service.js";
 
-export const reproductionRouter = new Hono();
+export const reproductionRouter = createRouter();
 
 reproductionRouter.get("/", async (c) => {
   const result = await service.listRecords();
-  return c.json(result);
+  return ok(c, result);
 });
 
-reproductionRouter.post("/", zValidator("json", createReproductionSchema), async (c) => {
+reproductionRouter.post("/", zv("json", createReproductionSchema), async (c) => {
   const body = c.req.valid("json");
   const record = await service.createRecord(body);
-  return c.json(record, 201);
+  return created(c, record);
 });
 
 reproductionRouter.patch(
   "/:recordId",
-  zValidator("json", updateReproductionSchema),
+  zv("json", updateReproductionSchema),
   async (c) => {
     const id = c.req.param("recordId");
     const body = c.req.valid("json");
     const record = await service.updateRecord(id, body);
-    return c.json(record);
+    return ok(c, record);
   },
 );
 

@@ -1,7 +1,7 @@
 import pino from "pino";
 import { env } from "@/config/env.js";
 
-export const logger = pino({
+export const baseLogger = pino({
   level: env.LOG_LEVEL,
   transport:
     env.NODE_ENV === "development"
@@ -15,3 +15,10 @@ export const logger = pino({
         }
       : undefined,
 });
+
+/**
+ * Alias kept for backwards compatibility with modules that imported `logger`
+ * before the request-scoped logger was introduced. In HTTP handlers prefer
+ * `c.get("logger")` which is a child logger bound to the current requestId.
+ */
+export const logger = baseLogger;

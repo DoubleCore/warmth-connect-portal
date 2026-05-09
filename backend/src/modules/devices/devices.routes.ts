@@ -1,29 +1,30 @@
-import { Hono } from "hono";
-import { zValidator } from "@hono/zod-validator";
+import { createRouter } from "@/shared/context.js";
+import { created, ok } from "@/shared/response.js";
+import { zv } from "@/shared/validator.js";
 import { createDeviceSchema, updateDeviceSchema } from "./devices.dto.js";
 import * as service from "./devices.service.js";
 
-export const devicesRouter = new Hono();
+export const devicesRouter = createRouter();
 
 devicesRouter.get("/", async (c) => {
   const result = await service.listDevices();
-  return c.json(result);
+  return ok(c, result);
 });
 
-devicesRouter.post("/", zValidator("json", createDeviceSchema), async (c) => {
+devicesRouter.post("/", zv("json", createDeviceSchema), async (c) => {
   const body = c.req.valid("json");
   const device = await service.createDevice(body);
-  return c.json(device, 201);
+  return created(c, device);
 });
 
 devicesRouter.patch(
   "/:deviceId",
-  zValidator("json", updateDeviceSchema),
+  zv("json", updateDeviceSchema),
   async (c) => {
     const id = c.req.param("deviceId");
     const body = c.req.valid("json");
     const device = await service.updateDevice(id, body);
-    return c.json(device);
+    return ok(c, device);
   },
 );
 

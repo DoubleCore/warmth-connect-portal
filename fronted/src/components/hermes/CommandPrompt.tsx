@@ -1,10 +1,17 @@
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Sparkles, CornerDownLeft, Search, FileText, MessageSquare, Cpu } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import {
+  Sparkles,
+  CornerDownLeft,
+  Search,
+  FileText,
+  MessageSquare,
+  Cpu,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const quickActions = [
-  { label: "Search Papers", icon: Search, to: "/" as const },
+  { label: "Search Papers", icon: Search, to: "/search" as const },
   { label: "Analyze PDF", icon: FileText, to: "/library" as const },
   { label: "Chat with RAG", icon: MessageSquare, to: "/search" as const },
   { label: "Manage Training", icon: Cpu, to: "/workspace" as const },
@@ -17,6 +24,7 @@ const recent = [
     tag: "PDF",
     icon: FileText,
     accent: "text-muted-foreground",
+    to: { to: "/library/$paperId" as const, params: { paperId: "attention-is-all-you-need" } },
   },
   {
     title: "Model Training: Hermes-V2",
@@ -24,11 +32,20 @@ const recent = [
     tag: "TASK",
     icon: Sparkles,
     accent: "text-[oklch(0.74_0.18_155)]",
+    to: { to: "/workspace" as const, params: undefined },
   },
 ];
 
 export function CommandPrompt() {
   const [value, setValue] = useState("");
+  const navigate = useNavigate();
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    navigate({ to: "/search", search: { q: trimmed } });
+  };
 
   return (
     <div className="mx-auto w-full max-w-4xl px-8 py-14">
@@ -39,21 +56,35 @@ export function CommandPrompt() {
         </p>
       </div>
 
-      <div className="mt-10 group relative">
-        <div className="absolute -inset-px rounded-2xl opacity-60 blur-md transition-opacity group-focus-within:opacity-100" style={{ background: "var(--gradient-primary)" }} />
+      <form onSubmit={handleSubmit} className="mt-10 group relative" role="search">
+        <div
+          className="absolute -inset-px rounded-2xl opacity-60 blur-md transition-opacity group-focus-within:opacity-100"
+          style={{ background: "var(--gradient-primary)" }}
+          aria-hidden
+        />
         <div className="relative flex items-center gap-3 rounded-2xl border border-border bg-card px-5 py-4">
-          <Sparkles className="h-5 w-5 text-primary" />
+          <Sparkles className="h-5 w-5 text-primary" aria-hidden />
+          <label htmlFor="command-prompt" className="sr-only">
+            Ask Hermes
+          </label>
           <input
+            id="command-prompt"
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder="e.g. Summarize recent advancements in transformer architectures…"
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            autoComplete="off"
           />
-          <button className="rounded-lg bg-secondary p-2 text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground">
-            <CornerDownLeft className="h-4 w-4" />
+          <button
+            type="submit"
+            aria-label="Submit query"
+            className="rounded-lg bg-secondary p-2 text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
+            disabled={!value.trim()}
+          >
+            <CornerDownLeft className="h-4 w-4" aria-hidden />
           </button>
         </div>
-      </div>
+      </form>
 
       <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
         {quickActions.map(({ label, icon: Icon, to }) => (
@@ -63,7 +94,7 @@ export function CommandPrompt() {
             className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-4 py-6 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-glow)]"
           >
             <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
-              <Icon className="h-5 w-5" />
+              <Icon className="h-5 w-5" aria-hidden />
             </span>
             <span className="text-sm font-medium">{label}</span>
           </Link>
@@ -73,24 +104,42 @@ export function CommandPrompt() {
       <div className="mt-12">
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-semibold">Recent Activity</h3>
-          <button className="text-sm text-primary hover:underline">View All</button>
+          <button type="button" className="text-sm text-primary hover:underline">
+            View All
+          </button>
         </div>
         <div className="mt-4 flex flex-col gap-3">
-          {recent.map((r) => (
-            <div
-              key={r.title}
-              className="flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/40"
-            >
-              <r.icon className={cn("h-5 w-5", r.accent)} />
-              <div className="flex-1">
-                <div className="font-medium">{r.title}</div>
-                <div className="text-xs text-muted-foreground">{r.meta}</div>
-              </div>
-              <span className="rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold tracking-wider text-muted-foreground">
-                {r.tag}
-              </span>
-            </div>
-          ))}
+          {recent.map((r) => {
+            const content = (
+              <>
+                <r.icon className={cn("h-5 w-5", r.accent)} aria-hidden />
+                <div className="flex-1">
+                  <div className="font-medium">{r.title}</div>
+                  <div className="text-xs text-muted-foreground">{r.meta}</div>
+                </div>
+                <span className="rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold tracking-wider text-muted-foreground">
+                  {r.tag}
+                </span>
+              </>
+            );
+            const cls =
+              "flex items-center gap-4 rounded-xl border border-border bg-card px-5 py-4 transition-colors hover:border-primary/40";
+
+            return r.to.params ? (
+              <Link
+                key={r.title}
+                to={r.to.to}
+                params={r.to.params}
+                className={cls}
+              >
+                {content}
+              </Link>
+            ) : (
+              <Link key={r.title} to={r.to.to} className={cls}>
+                {content}
+              </Link>
+            );
+          })}
         </div>
       </div>
     </div>
