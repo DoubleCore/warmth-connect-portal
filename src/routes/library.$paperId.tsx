@@ -40,7 +40,7 @@ export const Route = createFileRoute("/library/$paperId")({
 });
 
 function PaperDetailPage() {
-  const paper = Route.useLoaderData();
+  const paper: Paper = Route.useLoaderData();
 
   return (
     <Shell active="Library">
