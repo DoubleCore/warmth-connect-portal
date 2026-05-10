@@ -91,12 +91,24 @@ export async function updateCommandStatus(
     .where(eq(commands.id, id));
 }
 
+/** 写入 Hermes Runs API 返回的 run_id，便于后续 stop/approval 定位。 */
+export async function setCommandHermesRunId(
+  id: string,
+  hermesRunId: string,
+): Promise<void> {
+  await db
+    .update(commands)
+    .set({ hermesRunId, updatedAt: new Date().toISOString() })
+    .where(eq(commands.id, id));
+}
+
 /**
- * 写入 Hermes 非流式调用的最终结果。result/error 二选一：
+ * 写入 Hermes Runs API 的最终结果。result/error 二选一：
  *  - 完成：status=completed，写 result_json
  *  - 失败：status=failed，写 error_json
+ *  - 取消：status=cancelled，无附带 payload
  *
- * Phase 2 SSE 成熟后，中间态（running / waiting_confirmation）会分别单独更新。
+ * 所有三种终态都会同步更新 updated_at。
  */
 export async function finalizeCommand(
   id: string,

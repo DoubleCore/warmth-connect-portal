@@ -247,6 +247,9 @@ export const commands = sqliteTable(
       .default("pending"),
     // 前端发消息时带的页面上下文，例如 { currentPage, paperId, trainingListId, deviceId }
     contextJson: text("context_json").notNull().default("{}"),
+    // Hermes Runs API 的 run_id。POST /v1/runs 成功后写入，之后的 approval/stop
+    // 都要用它定位。可能为空（创建 run 前、或使用非 runs 路径的早期版本数据）。
+    hermesRunId: text("hermes_run_id"),
     // Hermes final 事件里的 result payload（JSON 字符串，可能为空）
     resultJson: text("result_json"),
     // 错误信息，包含 { code, message }
@@ -262,6 +265,7 @@ export const commands = sqliteTable(
     sessionIdx: index("commands_session_id_idx").on(t.sessionId),
     statusIdx: index("commands_status_idx").on(t.status),
     createdIdx: index("commands_created_at_idx").on(t.createdAt),
+    hermesRunIdx: index("commands_hermes_run_id_idx").on(t.hermesRunId),
   }),
 );
 

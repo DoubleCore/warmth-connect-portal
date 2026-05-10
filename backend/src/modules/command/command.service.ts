@@ -28,18 +28,23 @@ import type { CommandEventRowWithSeq } from "./command.repository.js";
  * CommandOrchestrator —— Hermes 指令中心的主流程编排。
  * 对应 Hermes_Command_Center_HTTP_直连可用版.md §8.2。
  *
- * Phase 3（当前实现）：
+ * 本轮重构把直接对接换成 Hermes 官方 Runs API：
+ *
  *   1. sendMessage 异步启动 runCommand，立即返回 { status: "running", streamUrl }
- *   2. runCommand 用"可暂停续跑循环"消费 Hermes SSE：
- *      - 收到 need_confirmation → 落 waiting_confirmation + 关闭当前流，挂起等决策
- *      - confirm → streamResume 打开新流继续循环
- *      - cancel → 本地落 cancelled，fire-and-forget 通知 Hermes
- *   3. final/error 到达 → finalize 对应终态 + 广播 end
+ *   2. runCommand 拿到 run_id 后**只维持一条** /v1/runs/{id}/events SSE 流：
+ *      - 收到 approval.request → 落 waiting_confirmation，挂起等前端决策
+ *      - 前端 confirm → POST /v1/runs/{id}/approval (choice=once)
+ *      - 前端 cancel  → POST /v1/runs/{id}/approval (choice=deny) +
+ *                        可选地 POST /v1/runs/{id}/stop 兜底
+ *      - Hermes 会在同一条 SSE 流里继续发剩余事件
+ *   3. run.completed / run.failed / run.cancelled 到达 → finalize + 广播 end
  *
  * 关键不变式：
  *   - 所有 Hermes 输出都先回 Backend，再写库 / 广播 / 推前端
- *   - command 一旦进入 running/waiting_confirmation，
- *     runCommand 最终必然把它推进到 completed/failed/cancelled，不会悬空
+ *   - command 一旦进入 running/waiting_confirmation，runCommand 最终必然把它
+ *     推进到 completed/failed/cancelled，不会悬空
+ *   - message.delta 聚合：多条连续 delta 拼成一条 agent_message，在边界事件
+ *     （tool.started / reasoning.available / approval.request / run.*) 前 flush
  */
 
 // ---------- sessions ----------
@@ -106,7 +111,7 @@ export async function sendMessage(
   };
 }
 
-// ---------- 后台可暂停续跑的 runCommand ----------
+// ---------- runCommand：单流消费，挂起/续跑走 approval 控制面 ----------
 
 type RunCommandInput = {
   commandId: string;
@@ -116,165 +121,235 @@ type RunCommandInput = {
   logger: Logger;
 };
 
+/**
+ * message.delta 聚合器。
+ *
+ * Hermes 一次回复可能产生几十个 token 级 delta，每个 delta 单独落库/广播太吵，
+ * 前端也不好渲染。策略：拼到一个 buffer 里，遇到边界事件时一次性 flush 成
+ * 一条 `agent_message`。边界包括：tool.started / reasoning.available /
+ * approval.request / run.completed / run.failed / run.cancelled。
+ *
+ * 同时保留一点"软刷新"——buffer 过长（>2000 字）也主动 flush，
+ * 避免长回答被压缩成一条巨大事件影响 SSE 消费。
+ */
+class DeltaAggregator {
+  private buffer = "";
+  private readonly maxChars = 2000;
+
+  append(delta: string): CommandStreamEvent | null {
+    if (!delta) return null;
+    this.buffer += delta;
+    if (this.buffer.length >= this.maxChars) {
+      return this.flush();
+    }
+    return null;
+  }
+
+  flush(): CommandStreamEvent | null {
+    if (!this.buffer) return null;
+    const msg: CommandStreamEvent = {
+      type: "agent_message",
+      message: this.buffer,
+    };
+    this.buffer = "";
+    return msg;
+  }
+}
+
 async function runCommand(input: RunCommandInput): Promise<void> {
   const { commandId, sessionId, userMessage, context, logger } = input;
-  let finalized = false;
 
-  // 当前正在消费的 Hermes 流。初次来自 streamMessage，resume 后换成 streamResume 产出。
-  let currentStream: AsyncIterable<HermesRawEvent> | null = null;
+  const aggregator = new DeltaAggregator();
+  let finalized = false;
+  let runId: string | null = null;
+
+  /**
+   * 把聚合器里尚未发出的 delta flush 成 agent_message（如有）。
+   * 每次在"边界"处调一下，保证顺序：先冲业务消息，再发边界事件。
+   */
+  const flushDeltas = async (): Promise<void> => {
+    const ev = aggregator.flush();
+    if (ev) await appendAndBroadcast(commandId, ev);
+  };
 
   try {
     await repo.updateCommandStatus(commandId, "running");
-    currentStream = hermesClient.streamMessage(
+
+    // Phase 1: 创建 run 拿到 run_id，落库供后续 approval / stop 使用
+    const started = await hermesClient.streamMessage(
       { commandId, sessionId, message: userMessage, context },
       logger,
     );
+    runId = started.runId;
+    await repo.setCommandHermesRunId(commandId, runId);
+    logger.info({ runId }, "Hermes run created, consuming events");
 
-    resumeLoop: while (currentStream) {
-      const stream = currentStream;
-      currentStream = null;
-      let paused = false;
-
-      for await (const rawEvent of stream) {
-        const mapped = mapHermesEvent(rawEvent);
-        if (!mapped) continue;
-
-        await appendAndBroadcast(commandId, mapped);
-
-        if (mapped.type === "need_confirmation") {
-          await repo.updateCommandStatus(commandId, "waiting_confirmation");
-          logger.info(
-            { confirmationId: mapped.confirmationId },
-            "Command paused waiting for confirmation",
-          );
-          paused = true;
-          // break 会触发生成器的 finally（reader.cancel），Hermes 侧连接随之关闭
-          break;
-        }
-
-        if (mapped.type === "final") {
-          await repo.finalizeCommand(commandId, {
-            status: "completed",
-            result: mapped.result ?? null,
-          });
-          finalized = true;
-          break resumeLoop;
-        }
-
-        if (mapped.type === "error") {
-          await repo.finalizeCommand(commandId, {
-            status: "failed",
-            error: {
-              message: mapped.message,
-              ...(mapped.code !== undefined ? { code: mapped.code } : {}),
-            },
-          });
-          finalized = true;
-          break resumeLoop;
-        }
-      }
-
-      if (!paused) {
-        if (!finalized) {
-          const missingFinal: CommandStreamEvent = {
-            type: "error",
-            code: "HERMES_AGENT_ERROR",
-            message: "Hermes 流已结束但未返回 final 事件。",
-          };
-          await appendAndBroadcast(commandId, missingFinal);
-          await repo.finalizeCommand(commandId, {
-            status: "failed",
-            error: {
-              code: "HERMES_AGENT_ERROR",
-              message: missingFinal.message,
-            },
-          });
-          finalized = true;
-        }
-        break;
-      }
-
-      // paused=true：等前端对最近一条 need_confirmation 的决策
-      const pending = await findLatestConfirmationEvent(commandId);
-      if (!pending) {
-        logger.error(
-          "Paused but no need_confirmation event found, failing command",
-        );
-        const missing: CommandStreamEvent = {
-          type: "error",
-          code: "INTERNAL_ERROR",
-          message: "挂起后无法定位 confirmation，流程异常。",
+    // Phase 2: 消费事件流
+    for await (const raw of started.events) {
+      // ---- 终态事件：flush delta → 写终态 → break ----
+      if (raw.event === "run.completed") {
+        await flushDeltas();
+        const final: CommandStreamEvent = {
+          type: "final",
+          result: {
+            output: raw.data.output ?? null,
+            usage: raw.data.usage ?? null,
+          },
         };
-        await appendAndBroadcast(commandId, missing);
+        if (typeof raw.data.output === "string") final.message = raw.data.output;
+        await appendAndBroadcast(commandId, final);
         await repo.finalizeCommand(commandId, {
-          status: "failed",
-          error: { code: "INTERNAL_ERROR", message: missing.message },
+          status: "completed",
+          result: final.result,
         });
         finalized = true;
         break;
       }
 
-      const decision = await pendingConfirmations.waitForDecision(
-        pending.confirmationId,
-        commandId,
-      );
-      logger.info(
-        { confirmationId: pending.confirmationId, action: decision.action },
-        "Confirmation decision received",
-      );
-
-      if (decision.action === "cancel") {
-        const cancelFinal: CommandStreamEvent = {
-          type: "final",
-          message: "已取消本次操作。",
-          result: {
-            status: "cancelled",
-            confirmationId: pending.confirmationId,
-          },
+      if (raw.event === "run.failed") {
+        await flushDeltas();
+        const msg =
+          typeof raw.data.error === "string"
+            ? raw.data.error
+            : "Hermes Agent 执行失败。";
+        const err: CommandStreamEvent = {
+          type: "error",
+          code: "HERMES_AGENT_ERROR",
+          message: msg,
         };
-        await appendAndBroadcast(commandId, cancelFinal);
-        await repo.finalizeCommand(commandId, { status: "cancelled" });
+        await appendAndBroadcast(commandId, err);
+        await repo.finalizeCommand(commandId, {
+          status: "failed",
+          error: { code: "HERMES_AGENT_ERROR", message: msg },
+        });
         finalized = true;
-        // fire-and-forget：即使 Hermes 那边失败也不影响前端 cancelled 结果
-        void hermesClient
-          .notifyCancel(
-            { commandId, sessionId, reason: "user_cancelled_confirmation" },
-            logger,
-          )
-          .catch(() => {
-            /* client 内部已吞异常，这里是双保险 */
-          });
         break;
       }
 
-      // confirm：打开 resume 流继续
-      await repo.updateCommandStatus(commandId, "running");
-      currentStream = hermesClient.streamResume(
-        {
+      if (raw.event === "run.cancelled") {
+        await flushDeltas();
+        const done: CommandStreamEvent = {
+          type: "final",
+          message: "已取消本次操作。",
+          result: { status: "cancelled" },
+        };
+        await appendAndBroadcast(commandId, done);
+        await repo.finalizeCommand(commandId, { status: "cancelled" });
+        finalized = true;
+        break;
+      }
+
+      // ---- 中间事件：先按需 flush 再派发 ----
+      const mapped = mapHermesMidEvent(raw);
+      if (!mapped) continue;
+
+      if (mapped.type !== "agent_message") {
+        // 边界事件：先冲掉 delta buffer，再发它自己
+        await flushDeltas();
+      }
+
+      if (mapped.type === "need_confirmation") {
+        // 挂起，等前端决策。Hermes 侧 SSE 流不会因此关闭——它只是暂停推新事件
+        // 直到我们 POST /approval。
+        await repo.updateCommandStatus(commandId, "waiting_confirmation");
+        await appendAndBroadcast(commandId, mapped);
+        logger.info(
+          { confirmationId: mapped.confirmationId },
+          "Command paused waiting for confirmation",
+        );
+
+        const decision = await pendingConfirmations.waitForDecision(
+          mapped.confirmationId,
           commandId,
-          sessionId,
-          confirmationId: pending.confirmationId,
-          action: "confirm",
-          ...(decision.payload !== undefined
-            ? { payload: decision.payload }
-            : {}),
-        },
-        logger,
-      );
+        );
+        logger.info(
+          { confirmationId: mapped.confirmationId, action: decision.action },
+          "Confirmation decision received",
+        );
+
+        // 决策 → Hermes approval API
+        const choice: "once" | "deny" =
+          decision.action === "confirm" ? "once" : "deny";
+        try {
+          await hermesClient.resolveApproval(
+            { runId, choice },
+            logger,
+          );
+        } catch (err) {
+          logger.error(
+            { err, runId, choice },
+            "Failed to resolve Hermes approval; run may stall",
+          );
+          // approval 调用失败不是终态——Hermes 侧的 SSE 仍然挂着。
+          // 兜底：发一个 error 事件并终止，避免悬挂
+          const errEv: CommandStreamEvent = {
+            type: "error",
+            code:
+              err instanceof HermesError ? err.code : "INTERNAL_ERROR",
+            message:
+              err instanceof Error
+                ? err.message
+                : "无法转发审批结果给 Hermes",
+          };
+          await appendAndBroadcast(commandId, errEv);
+          await repo.finalizeCommand(commandId, {
+            status: "failed",
+            error: { code: errEv.code, message: errEv.message },
+          });
+          finalized = true;
+          break;
+        }
+
+        // cancel 语义用 deny 就够了——Hermes 会自己推 run.failed 或 run.completed
+        // 取决于 skill 实现。decision 之后回到 for-await 消费剩余事件。
+        await repo.updateCommandStatus(commandId, "running");
+        continue;
+      }
+
+      // 普通事件：thinking / agent_message(single delta) / tool_start / tool_result
+      if (mapped.type === "agent_message") {
+        // 来自 DeltaAggregator.flush 的聚合消息（我们不会自己构造单 delta 的
+        // agent_message，全部走 aggregator），这里分支实际不会走到；保留以防未来扩展
+        await appendAndBroadcast(commandId, mapped);
+        continue;
+      }
+
+      await appendAndBroadcast(commandId, mapped);
     }
 
-    logger.info("Command loop exited");
+    if (!finalized) {
+      // Hermes 事件流结束却没发任何终态事件——把 command 推成 failed 兜底
+      await flushDeltas();
+      const msg = "Hermes 流已结束但未返回 run.completed / failed / cancelled。";
+      const err: CommandStreamEvent = {
+        type: "error",
+        code: "HERMES_AGENT_ERROR",
+        message: msg,
+      };
+      await appendAndBroadcast(commandId, err);
+      await repo.finalizeCommand(commandId, {
+        status: "failed",
+        error: { code: "HERMES_AGENT_ERROR", message: msg },
+      });
+      finalized = true;
+    }
+
+    logger.info({ runId }, "Command loop exited normally");
   } catch (err) {
     const mapped: CommandStreamEvent =
       err instanceof HermesError
         ? { type: "error", code: err.code, message: err.message }
         : {
-            type: "error",
-            code: "INTERNAL_ERROR",
-            message: err instanceof Error ? err.message : "Unknown error",
-          };
+          type: "error",
+          code: "INTERNAL_ERROR",
+          message: err instanceof Error ? err.message : "Unknown error",
+        };
 
     try {
+      // 兜底 flush，避免掉尾部文本
+      const leftover = aggregator.flush();
+      if (leftover) await appendAndBroadcast(commandId, leftover);
+
       await appendAndBroadcast(commandId, mapped);
       await repo.finalizeCommand(commandId, {
         status: "failed",
@@ -293,92 +368,67 @@ async function runCommand(input: RunCommandInput): Promise<void> {
 
     logger.warn({ err, code: mapped.code }, "Command failed inside runCommand");
   } finally {
-    // 清理可能残留的挂起确认项
     pendingConfirmations.cancelAllForCommand(commandId);
     commandEventBus.publishEnd(commandId);
     if (!finalized) {
       logger.warn("runCommand exiting without finalizing command status");
     }
   }
-}
 
-/**
- * 倒序扫 command_events，找最近一条 need_confirmation 的 payload，拿 confirmationId。
- * need_confirmation 在本 command 的生命周期里通常只有 1~2 条，直接全扫就够。
- */
-async function findLatestConfirmationEvent(
-  commandId: string,
-): Promise<{ confirmationId: string } | null> {
-  const rows = await repo.listEventsByCommand(commandId);
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i];
-    if (!row || row.eventType !== "need_confirmation") continue;
-    const parsed = rowToStreamEvent(row);
-    if (
-      parsed &&
-      parsed.type === "need_confirmation" &&
-      parsed.confirmationId
-    ) {
-      return { confirmationId: parsed.confirmationId };
+  // ===== helper: 把一条中间事件附加到 aggregator / 转成 CommandStreamEvent =====
+  function mapHermesMidEvent(raw: HermesRawEvent): CommandStreamEvent | null {
+    const d = raw.data;
+    switch (raw.event) {
+      case "message.delta": {
+        const delta = typeof d.delta === "string" ? d.delta : "";
+        const flushed = aggregator.append(delta);
+        // append 只在缓冲超阈值时才返回，日常情况下返回 null，等边界事件 flush
+        return flushed;
+      }
+      case "reasoning.available":
+        return {
+          type: "thinking",
+          message: typeof d.text === "string" ? d.text : "",
+        };
+      case "tool.started":
+        return {
+          type: "tool_start",
+          toolName: typeof d.tool === "string" ? d.tool : "",
+          displayName: typeof d.tool === "string" ? d.tool : "",
+        };
+      case "tool.completed": {
+        const out: CommandStreamEvent = {
+          type: "tool_result",
+          toolName: typeof d.tool === "string" ? d.tool : "",
+          summary: buildToolSummary(d),
+        };
+        return out;
+      }
+      case "approval.request": {
+        // Hermes approval payload 里没有一个稳定的"confirmationId"概念，
+        // 我们用 run_id 作为稳定 id：同一个 run 同时只会有一个挂起的 approval。
+        return {
+          type: "need_confirmation",
+          confirmationId: typeof d.run_id === "string" ? d.run_id : runId ?? commandId,
+          message: typeof d.message === "string" ? d.message : "需要用户确认才能继续。",
+          payload: d,
+        };
+      }
+      // 审批回执、ping 之类信息性事件不再转发给前端
+      case "approval.responded":
+      default:
+        return null;
     }
   }
-  return null;
 }
 
-// ---------- Hermes raw event → CommandStreamEvent 映射 ----------
-
-function mapHermesEvent(raw: HermesRawEvent): CommandStreamEvent | null {
-  const d = raw.data;
-  switch (raw.event) {
-    case "thinking":
-      return { type: "thinking", message: pickString(d.message, "") };
-    case "agent_message":
-      return { type: "agent_message", message: pickString(d.message, "") };
-    case "tool_start":
-      return {
-        type: "tool_start",
-        toolName: pickString(d.toolName, ""),
-        displayName: pickString(d.displayName, pickString(d.toolName, "")),
-      };
-    case "tool_result": {
-      const out: CommandStreamEvent = {
-        type: "tool_result",
-        toolName: pickString(d.toolName, ""),
-        summary: pickString(d.summary, ""),
-      };
-      if (d.result !== undefined) out.result = d.result;
-      return out;
-    }
-    case "need_confirmation":
-      return {
-        type: "need_confirmation",
-        confirmationId: pickString(d.confirmationId, ""),
-        message: pickString(d.message, ""),
-        payload: d.payload ?? null,
-      };
-    case "final": {
-      const out: CommandStreamEvent = {
-        type: "final",
-        result: d.result ?? null,
-      };
-      if (typeof d.message === "string") out.message = d.message;
-      return out;
-    }
-    case "error": {
-      const out: CommandStreamEvent = {
-        type: "error",
-        message: pickString(d.message, "Hermes Agent 执行失败。"),
-      };
-      if (typeof d.code === "string") out.code = d.code;
-      return out;
-    }
-    default:
-      return null;
-  }
-}
-
-function pickString(v: unknown, fallback: string): string {
-  return typeof v === "string" ? v : fallback;
+function buildToolSummary(d: Record<string, unknown>): string {
+  const tool = typeof d.tool === "string" ? d.tool : "tool";
+  const duration =
+    typeof d.duration === "number" ? `${d.duration.toFixed(2)}s` : null;
+  const hasError = d.error === true;
+  if (hasError) return `${tool} 执行失败${duration ? `（${duration}）` : ""}`;
+  return duration ? `${tool} 执行完成（${duration}）` : `${tool} 执行完成`;
 }
 
 // ---------- 事件落库 + 广播 ----------
