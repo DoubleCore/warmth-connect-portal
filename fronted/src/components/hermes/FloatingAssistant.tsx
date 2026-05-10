@@ -335,8 +335,11 @@ function AssistantCard({
   }>(null);
 
   const onDragStart = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Ignore drags starting on interactive elements in the header
-    if ((e.target as HTMLElement).closest("button")) return;
+    // 头部里混着拖拽空白和 "打开完整视图 / 新建会话 / 最小化 / 关闭" 四个交互元素。
+    // 任何落在按钮、链接或其他可交互控件上的 pointerdown 都不应该触发拖拽，
+    // 否则 setPointerCapture 会把 pointerup 劫持走，浏览器无法合成 click。
+    if ((e.target as HTMLElement).closest("button, a, input, textarea, select, [role='button']"))
+      return;
     dragStart.current = {
       startX: e.clientX,
       startY: e.clientY,

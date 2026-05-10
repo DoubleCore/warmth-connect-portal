@@ -426,6 +426,18 @@ export function useCommandStream(options?: {
         eventSourceRef.current = es;
         attachHandlers(es, resp.commandId);
       } catch (err) {
+        // 网络层断连（后端没起 / CORS 阻塞 / 离线）：归为一条更友好的提示，
+        // 避免用户看到浏览器原文 "Failed to fetch"。仍然进入 failed 阶段，
+        // 以便用户点 "重置" 清场后再试。
+        if (err instanceof ApiError && err.code === "NETWORK_ERROR") {
+          setError({
+            code: "BACKEND_OFFLINE",
+            message: "连不上后端服务。请确认 backend 已启动（cd backend && npm run dev）。",
+          });
+          setPhase("failed");
+          return;
+        }
+
         const message =
           err instanceof ApiError
             ? err.message
