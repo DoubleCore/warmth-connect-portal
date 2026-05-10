@@ -34,6 +34,21 @@ commandRouter.post("/sessions", zv("json", createCommandSessionSchema), async (c
   return created(c, session);
 });
 
+/**
+ * GET /api/command/sessions/:sessionId/history
+ *
+ * 返回该 session 下的所有 command + 事件流，按时间顺序。
+ * 前端在刷新页面 / 切页 / 重开浏览器时用来恢复 transcript：
+ * 把 sessionId 存在 localStorage，挂载时调这个端点重建历史。
+ *
+ * sessionId 失效会返回 404，前端据此 fallback 到"创建新会话"。
+ */
+commandRouter.get("/sessions/:sessionId/history", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const history = await service.getSessionHistory(sessionId);
+  return ok(c, history);
+});
+
 // ---------- messages（Phase 1 非流式） ----------
 
 commandRouter.post(

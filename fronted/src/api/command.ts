@@ -2,6 +2,7 @@ import { apiFetch, apiUrl } from "@/lib/api-client";
 import type {
   CommandMessageResponseDto,
   CommandSessionDto,
+  CommandSessionHistoryDto,
   ConfirmCommandActionInput,
   ConfirmationResponseDto,
 } from "@/types/command";

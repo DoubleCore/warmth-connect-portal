@@ -46,17 +46,17 @@ export type CommandStreamEvent =
   | { type: "agent_message"; message: string }
   | { type: "tool_start"; toolName: string; displayName: string }
   | {
-      type: "tool_result";
-      toolName: string;
-      summary: string;
-      result?: unknown;
-    }
+    type: "tool_result";
+    toolName: string;
+    summary: string;
+    result?: unknown;
+  }
   | {
-      type: "need_confirmation";
-      confirmationId: string;
-      message: string;
-      payload: unknown;
-    }
+    type: "need_confirmation";
+    confirmationId: string;
+    message: string;
+    payload: unknown;
+  }
   | { type: "final"; message?: string; result: unknown }
   | { type: "error"; message: string; code?: string };
 
@@ -76,6 +76,31 @@ export type ConfirmationResponseDto = {
   commandId: string;
   action: ConfirmAction;
   accepted: boolean;
+};
+
+// ---------- 会话历史回放 ----------
+
+/**
+ * GET /api/command/sessions/:sessionId/history 的返回。
+ * 与 backend/command.dto.ts::CommandSessionHistoryDto 一一对应。
+ *
+ * 用于刷新页面 / 重开浏览器后，根据 localStorage 缓存的 sessionId
+ * 恢复 transcript——单一真相仍在后端 SQLite，前端只缓存 sessionId 字符串。
+ */
+export type CommandHistoryDto = {
+  commandId: string;
+  userMessage: string;
+  status: CommandStatus;
+  createdAt: string;
+  updatedAt: string;
+  events: CommandStreamEvent[];
+};
+
+export type CommandSessionHistoryDto = {
+  sessionId: string;
+  entry: string | null;
+  createdAt: string;
+  commands: CommandHistoryDto[];
 };
 
 // ---------- Hook 对外暴露的运行时状态 ----------

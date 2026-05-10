@@ -540,6 +540,55 @@ export async function listEvents(commandId: string): Promise<CommandStreamEvent[
   return rows.map(rowToStreamEvent).filter((e): e is CommandStreamEvent => e !== null);
 }
 
+/**
+ * 拉出一个 session 里的完整历史：所有 command + 它们的事件流，按时间顺序。
+ * 前端刷新页面 / 从 localStorage 恢复 sessionId 时用来重建 transcript。
+ *
+ * 实现：
+ *   1. 确认 session 存在（没有就抛 404）
+ *   2. 按 createdAt asc 拉所有 command
+ *   3. 一次 IN 查询拉出所有事件，按 commandId 分桶
+ *   4. 对每个 command，只保留 JSON.parse 成功的事件，按落库顺序（seq）返回
+ *
+ * 为什么不每个 command 单独查一次事件：避免 N+1。
+ */
+export async function getSessionHistory(
+  sessionId: string,
+): Promise<CommandSessionHistoryDto> {
+  const session = await getSessionOrThrow(sessionId);
+  const commandRows = await repo.listCommandsBySession(sessionId);
+
+  const eventsByCommand = new Map<string, CommandStreamEvent[]>();
+  if (commandRows.length > 0) {
+    const eventRows = await repo.listEventsByCommandIds(
+      commandRows.map((r) => r.id),
+    );
+    for (const row of eventRows) {
+      const ev = rowToStreamEvent(row);
+      if (!ev) continue;
+      const bucket = eventsByCommand.get(row.commandId);
+      if (bucket) bucket.push(ev);
+      else eventsByCommand.set(row.commandId, [ev]);
+    }
+  }
+
+  const commands: CommandHistoryDto[] = commandRows.map((row) => ({
+    commandId: row.id,
+    userMessage: row.userMessage,
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    events: eventsByCommand.get(row.id) ?? [],
+  }));
+
+  return {
+    sessionId: session.id,
+    entry: session.entry,
+    createdAt: session.createdAt,
+    commands,
+  };
+}
+
 // ---------- 前端确认回执 ----------
 
 /**
