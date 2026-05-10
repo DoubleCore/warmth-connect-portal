@@ -1,10 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { SlidersHorizontal, QrCode, ChevronRight, CircleDot } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
+import {
+  SlidersHorizontal,
+  QrCode,
+  ChevronRight,
+  CircleDot,
+  Loader2,
+  AlertTriangle,
+  RefreshCw,
+  Copy,
+  Check,
+} from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { ProfileSection } from "@/components/hermes/ProfileSection";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useTheme } from "@/lib/theme/ThemeProvider";
+import { useCommandStream } from "@/hooks/use-command-stream";
 import { getProfile } from "@/api/profile";
 
 export const Route = createFileRoute("/settings")({
@@ -116,33 +129,7 @@ function SettingsPage() {
             className="rounded-2xl border border-border bg-card p-6 lg:sticky lg:top-6 lg:self-start"
             aria-labelledby="feishu-heading"
           >
-            <div className="flex items-center gap-2">
-              <QrCode className="h-5 w-5 text-primary" aria-hidden />
-              <h2 id="feishu-heading" className="text-lg font-semibold">
-                {t("settings.feishu.heading")}
-              </h2>
-            </div>
-            <p className="mt-2 text-sm text-muted-foreground">{t("settings.feishu.body")}</p>
-
-            <div className="mt-8 grid place-items-center">
-              <div className="relative rounded-2xl bg-white p-4 shadow-[var(--shadow-glow)]">
-                <div className="blur-md" aria-hidden>
-                  <FakeQr />
-                </div>
-                <div className="pointer-events-none absolute inset-0 grid place-items-center">
-                  <span className="rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
-                    {t("common.qrPending")}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 flex justify-center">
-              <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                <CircleDot className="h-3.5 w-3.5 text-[oklch(0.74_0.18_155)]" aria-hidden />
-                {t("common.devicePairingReady")}
-              </span>
-            </div>
+            <FeishuPairingCard />
           </aside>
         </div>
       </div>
@@ -168,6 +155,301 @@ function PrefRow({
         <div className="text-xs text-muted-foreground">{desc}</div>
       </div>
       <Toggle on={on} onChange={onChange} label={title} />
+    </div>
+  );
+}
+
+// ---------- 飞书配对二维码 ----------
+
+/**
+ * 通过 Hermes 为当前用户生成一个飞书配对链接，并把它渲染成二维码。
+ *
+ * 交互：
+ *   - 初始：展示模糊占位 + "点击生成"。点击整张卡片或按钮触发请求。
+ *   - 请求中：覆盖一层 loader，避免重复触发。
+ *   - 成功：显示 SVG 二维码 + 可复制的链接文本。
+ *   - 失败 / Hermes 没返回可识别的链接：提示 + 重试按钮。
+ *
+ * 与 Hermes 的交互策略：
+ *   - 走现有 `useCommandStream` 链路（/api/command → Hermes），复用后端鉴权 & 日志。
+ *   - Prompt 要求 Hermes **只回纯 URL**，便于前端稳定抽取。对 Hermes 的可靠性不做
+ *     硬性依赖：若抽到不是合法链接，也能直接把原文本生成二维码（至少扫得到）。
+ */
+function FeishuPairingCard() {
+  const { t } = useI18n();
+  const command = useCommandStream({
+    entry: "settings_feishu",
+    baseContext: { currentPage: "settings", feature: "feishu_pair" },
+  });
+
+  const [copied, setCopied] = useState(false);
+
+  const isLoading =
+    command.phase === "connecting" ||
+    command.phase === "streaming" ||
+    command.phase === "awaiting_confirmation";
+
+  // 从最近一次 final 事件里抽出二维码应当编码的内容。
+  const qrValue = useMemo(() => extractPairingPayload(command.transcript), [command.transcript]);
+
+  // 重新触发时清除复制状态
+  useEffect(() => {
+    setCopied(false);
+  }, [qrValue]);
+
+  const hasResult = command.phase === "completed" && qrValue !== null;
+  const emptyResult = command.phase === "completed" && qrValue === null;
+  const hasError = command.phase === "failed" && command.error !== null;
+
+  const handleTrigger = async () => {
+    if (isLoading) return;
+    // Prompt 设计要点（参考 Hermes 官方 Feishu 集成文档）：
+    //  - Hermes 没有"一键返回配对链接"的 HTTP 指令，但它自带文件系统工具，
+    //    可以直接读 `~/.hermes/.env`（或等价配置）里的 FEISHU_APP_ID。
+    //  - 飞书打开机器人会话的 deep link 是固定模板：
+    //      https://applink.feishu.cn/client/chat/open?appId=<APP_ID>
+    //    Lark 国际版对应 applink.larksuite.com。
+    //  - 约束 Hermes 只回纯 URL：前端 `firstUrl` 抽取器对 Markdown 代码块、
+    //    引号、解释性前后缀都能兜底，但让它直接给裸 URL 最稳。
+    //  - 明确的"找不到就回 NO_LINK"分支比让它瞎编更安全，extract 逻辑会把
+    //    NO_LINK 当普通文本兜底给二维码（仍能扫到"NO_LINK"纯文本，
+    //    然后上层落到 empty 状态文案）。
+    await command.run(
+      [
+        "请返回用于通过飞书（Feishu）或 Lark 将当前 Hermes Agent 添加为机器人的配对链接。",
+        "步骤：",
+        "1. 从 ~/.hermes/.env（或等价的 Hermes 配置文件）读取 FEISHU_APP_ID。",
+        "2. 按模板拼接：https://applink.feishu.cn/client/chat/open?appId=<FEISHU_APP_ID>",
+        "   如果 FEISHU_DOMAIN=lark，则改用 https://applink.larksuite.com/client/chat/open?appId=<FEISHU_APP_ID>",
+        "只回复最终 URL，必须以 https:// 开头，不要加任何引号、Markdown、代码块或说明。",
+        "如果读不到 FEISHU_APP_ID 或本机未配置飞书机器人，直接回复 NO_LINK。",
+      ].join("\n"),
+    );
+  };
+
+  const handleCopy = async () => {
+    if (!qrValue) return;
+    try {
+      await navigator.clipboard.writeText(qrValue);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // 环境不支持 clipboard（如非 HTTPS），直接 noop；用户可以手动复制下方文本
+    }
+  };
+
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <QrCode className="h-5 w-5 text-primary" aria-hidden />
+        <h2 id="feishu-heading" className="text-lg font-semibold">
+          {t("settings.feishu.heading")}
+        </h2>
+      </div>
+      <p className="mt-2 text-sm text-muted-foreground">{t("settings.feishu.body")}</p>
+
+      <div className="mt-8 grid place-items-center">
+        <button
+          type="button"
+          onClick={handleTrigger}
+          disabled={isLoading}
+          aria-busy={isLoading}
+          aria-label={
+            hasResult ? t("settings.feishu.ctaRegenerate") : t("settings.feishu.cta")
+          }
+          className={cn(
+            "group relative rounded-2xl bg-white p-4 shadow-[var(--shadow-glow)] transition-transform",
+            !isLoading && "hover:-translate-y-0.5 focus-visible:-translate-y-0.5",
+            "focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+          )}
+        >
+          {hasResult ? (
+            <QRCodeSVG
+              value={qrValue}
+              size={176}
+              level="M"
+              bgColor="#ffffff"
+              fgColor="#000000"
+            />
+          ) : (
+            <div className={cn(!hasResult && !hasError ? "blur-md" : undefined)} aria-hidden>
+              <FakeQr />
+            </div>
+          )}
+
+          {/* 覆盖层：idle / loading / error / empty 不同状态 */}
+          {!hasResult ? (
+            <div className="pointer-events-none absolute inset-0 grid place-items-center">
+              {isLoading ? (
+                <span className="inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+                  <Loader2 className="h-3 w-3 animate-spin" aria-hidden />
+                  {t("settings.feishu.loading")}
+                </span>
+              ) : hasError ? (
+                <span className="inline-flex items-center gap-2 rounded-full bg-destructive/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+                  <AlertTriangle className="h-3 w-3" aria-hidden />
+                  {t("settings.feishu.ctaRegenerate")}
+                </span>
+              ) : emptyResult ? (
+                <span className="inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+                  <RefreshCw className="h-3 w-3" aria-hidden />
+                  {t("settings.feishu.ctaRegenerate")}
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-wider text-white">
+                  <QrCode className="h-3 w-3" aria-hidden />
+                  {t("settings.feishu.cta")}
+                </span>
+              )}
+            </div>
+          ) : null}
+        </button>
+      </div>
+
+      {/* 状态文案 */}
+      <div className="mt-4 text-center text-xs">
+        {hasResult ? (
+          <p className="text-muted-foreground">{t("settings.feishu.ready")}</p>
+        ) : hasError ? (
+          <p className="text-destructive">
+            {t("settings.feishu.error", { message: command.error?.message ?? "unknown" })}
+          </p>
+        ) : emptyResult ? (
+          <p className="text-muted-foreground">{t("settings.feishu.empty")}</p>
+        ) : (
+          <p className="text-muted-foreground">{t("settings.feishu.hint")}</p>
+        )}
+      </div>
+
+      {/* empty：Hermes 明确说主机没配置飞书 App，给出在主机上运行的命令 */}
+      {emptyResult ? <SetupCommandCard /> : null}
+
+      {/* 链接 + 复制 */}
+      {hasResult ? (
+        <div className="mt-4 flex items-center gap-2 rounded-xl border border-border bg-background/40 px-3 py-2 text-xs">
+          <span className="flex-1 truncate font-mono" title={qrValue}>
+            {qrValue}
+          </span>
+          <button
+            type="button"
+            onClick={handleCopy}
+            className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-primary/15 hover:text-primary"
+          >
+            {copied ? (
+              <>
+                <Check className="h-3 w-3" aria-hidden />
+                {t("settings.feishu.copied")}
+              </>
+            ) : (
+              <>
+                <Copy className="h-3 w-3" aria-hidden />
+                {t("settings.feishu.copy")}
+              </>
+            )}
+          </button>
+        </div>
+      ) : null}
+
+      <div className="mt-6 flex justify-center">
+        <span className="inline-flex items-center gap-2 rounded-full border border-border bg-background/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <CircleDot
+            className={cn(
+              "h-3.5 w-3.5",
+              hasResult ? "text-[oklch(0.74_0.18_155)]" : "text-muted-foreground",
+            )}
+            aria-hidden
+          />
+          {hasResult ? t("common.devicePairingReady") : t("common.qrPending")}
+        </span>
+      </div>
+    </>
+  );
+}
+
+/**
+ * 从指令流里扒拉出最近一次 final 事件的"可配对字符串"。
+ *
+ * 优先抽成合法的 http/https URL，抽不到则退化为原始文本（仍能扫码转交）；
+ * 再抽不到就返回 null，调用方会显示 "empty" 文案。
+ */
+function extractPairingPayload(
+  transcript: ReturnType<typeof useCommandStream>["transcript"],
+): string | null {
+  for (let i = transcript.length - 1; i >= 0; i -= 1) {
+    const item = transcript[i];
+    if (item.kind !== "event") continue;
+    if (item.event.type !== "final") continue;
+
+    // 1) message 字段最直接；它就是 Hermes run.completed 的 output
+    const fromMessage =
+      typeof item.event.message === "string" ? item.event.message : null;
+
+    // 2) result 通常是 { output, usage }
+    const result = item.event.result as { output?: unknown } | null | undefined;
+    const fromResult =
+      result && typeof result.output === "string" ? result.output : null;
+
+    const raw = (fromMessage ?? fromResult ?? "").trim();
+    if (!raw) return null;
+
+    // prompt 里约定"找不到回 NO_LINK"——把它归到 empty 分支
+    if (/^no[_\s-]?link$/i.test(raw)) return null;
+
+    // 首选抽出合法 URL；抽不到也回原文，至少能扫
+    return firstUrl(raw) ?? raw;
+  }
+  return null;
+}
+
+function firstUrl(text: string): string | null {
+  const match = text.match(/https?:\/\/[^\s<>"'`]+/i);
+  return match ? match[0] : null;
+}
+
+/**
+ * 当 Hermes 告诉我们这台主机没配置飞书 App（返回 NO_LINK）时，给运维/开发同事
+ * 一条可直接复制的命令。Hermes 的交互式向导只能在主机终端里跑——我们没办法
+ * 从浏览器可靠地驱动 pty，因此这里只做"展示 + 复制"，不触发任何自动执行。
+ */
+function SetupCommandCard() {
+  const { t } = useI18n();
+  const command = "hermes gateway setup";
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      // 非 HTTPS 场景 clipboard 不可用；静默失败，用户可手动选中文本
+    }
+  };
+
+  return (
+    <div className="mt-4 rounded-xl border border-border bg-background/40 p-3">
+      <div className="text-xs font-semibold">{t("settings.feishu.setupHeading")}</div>
+      <p className="mt-1 text-xs text-muted-foreground">{t("settings.feishu.setupHint")}</p>
+      <div className="mt-2 flex items-center gap-2 rounded-md bg-secondary/60 px-2 py-1.5">
+        <code className="flex-1 truncate font-mono text-[11px]">{command}</code>
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="inline-flex items-center gap-1 rounded-md bg-background px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-primary/15 hover:text-primary"
+        >
+          {copied ? (
+            <>
+              <Check className="h-3 w-3" aria-hidden />
+              {t("settings.feishu.copied")}
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3" aria-hidden />
+              {t("settings.feishu.copyCommand")}
+            </>
+          )}
+        </button>
+      </div>
     </div>
   );
 }

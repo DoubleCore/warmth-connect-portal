@@ -8,22 +8,48 @@ import {
   Settings,
   HelpCircle,
   LifeBuoy,
+  FlaskConical,
+  ActivitySquare,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
 
-const nav = [
-  { to: "/", labelKey: "sidebar.commandCenter", icon: TerminalSquare },
-  { to: "/library", labelKey: "sidebar.paperLibrary", icon: BookOpen },
-  { to: "/workspace", labelKey: "sidebar.deviceManager", icon: Cpu },
-  { to: "/search", labelKey: "sidebar.ragSearch", icon: Search },
-  { to: "/settings", labelKey: "sidebar.settings", icon: Settings },
-] as const satisfies readonly {
+type NavEntry = {
   to: string;
   labelKey: MessageKey;
   icon: typeof TerminalSquare;
-}[];
+  /** 同一根节点下的缩进子项，与父项共享视觉分组但单独路由 */
+  children?: ReadonlyArray<{
+    to: string;
+    labelKey: MessageKey;
+    icon: typeof TerminalSquare;
+  }>;
+};
+
+const nav: readonly NavEntry[] = [
+  {
+    to: "/",
+    labelKey: "sidebar.commandCenter",
+    icon: TerminalSquare,
+    children: [
+      { to: "/research", labelKey: "sidebar.research", icon: FlaskConical },
+    ],
+  },
+  {
+    to: "/library",
+    labelKey: "sidebar.analyzePdf",
+    icon: BookOpen,
+    children: [{ to: "/search", labelKey: "sidebar.ragSearch", icon: Search }],
+  },
+  {
+    to: "/workspace",
+    labelKey: "sidebar.deviceManager",
+    icon: Cpu,
+    children: [{ to: "/manager", labelKey: "sidebar.trainingManager", icon: ActivitySquare }],
+  },
+  { to: "/settings", labelKey: "sidebar.settings", icon: Settings },
+];
 
 export function Sidebar() {
   const { t } = useI18n();
@@ -62,25 +88,48 @@ export function Sidebar() {
       </Link>
 
       <nav className="mt-6 flex flex-col gap-1" aria-label={t("sidebar.primaryNavLabel")}>
-        {nav.map(({ to, labelKey, icon: Icon }) => {
+        {nav.map(({ to, labelKey, icon: Icon, children }) => {
           const baseCls =
             "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground";
           return (
-            <Link
-              key={to}
-              to={to}
-              className={baseCls}
-              activeOptions={{ exact: true }}
-              activeProps={{
-                className: cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
-                  "bg-sidebar-accent text-sidebar-accent-foreground",
-                ),
-              }}
-            >
-              <Icon className="h-4 w-4" aria-hidden />
-              {t(labelKey)}
-            </Link>
+            <div key={to} className="flex flex-col gap-1">
+              <Link
+                to={to}
+                className={baseCls}
+                activeOptions={{ exact: true }}
+                activeProps={{
+                  className: cn(
+                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors",
+                    "bg-sidebar-accent text-sidebar-accent-foreground",
+                  ),
+                }}
+              >
+                <Icon className="h-4 w-4" aria-hidden />
+                {t(labelKey)}
+              </Link>
+              {children?.map((child) => {
+                const childCls =
+                  "ml-6 flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors text-muted-foreground hover:bg-sidebar-accent/40 hover:text-sidebar-foreground";
+                const ChildIcon = child.icon;
+                return (
+                  <Link
+                    key={child.to}
+                    to={child.to}
+                    className={childCls}
+                    activeOptions={{ exact: true }}
+                    activeProps={{
+                      className: cn(
+                        "ml-6 flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] transition-colors",
+                        "bg-sidebar-accent text-sidebar-accent-foreground",
+                      ),
+                    }}
+                  >
+                    <ChildIcon className="h-3.5 w-3.5" aria-hidden />
+                    {t(child.labelKey)}
+                  </Link>
+                );
+              })}
+            </div>
           );
         })}
       </nav>

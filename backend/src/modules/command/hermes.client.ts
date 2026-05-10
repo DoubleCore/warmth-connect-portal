@@ -27,11 +27,25 @@ import { AppError } from "@/shared/errors.js";
 
 // ---------- 请求 / 响应契约（与 Hermes Runs API 对齐） ----------
 
+/**
+ * 一轮对话的 history 条目。对齐 Hermes `/v1/runs` 接受的
+ * `conversation_history: [{role, content}, ...]`。
+ */
+export type HermesHistoryTurn = {
+  role: "user" | "assistant" | "system";
+  content: string;
+};
+
 export type HermesMessageInput = {
   commandId: string;
   sessionId: string;
   message: string;
   context: Record<string, unknown>;
+  /**
+   * 可选的历史对话上下文。传入后 Hermes 会把它作为当前 run 的 prefix 喂给 LLM，
+   * 实现"多轮连续对话"。由编排层（command.service.ts）按 sessionId 从 DB 拼装。
+   */
+  history?: HermesHistoryTurn[];
 };
 
 /**
@@ -362,31 +376,49 @@ export function createHermesHttpClient(): HermesHttpClient {
    *
    * 请求体映射自我们的 HermesMessageInput：
    *   {
-   *     input:    <用户消息>,
-   *     model:    "hermes-agent",
-   *     // 把 commandId / sessionId / 前端上下文一并带上，便于 Hermes 侧日志溯源，
-   *     // Hermes 侧会忽略未知字段。
-   *     metadata: { commandId, sessionId, context }
+   *     input:                <用户这一轮的消息>,
+   *     model:                "hermes-agent",
+   *     session_id:           <我们项目里 command_sessions.id>,     // 见下方说明
+   *     conversation_history: [{role, content}, ...] | undefined,   // 见下方说明
+   *     metadata:             { commandId, sessionId, context }     // 便于 Hermes 侧日志溯源
    *   }
    *
-   * 注意：Hermes 侧的 `session_id` 参数决定 run 在 Hermes 自己会话树里的归属。
-   * 我们暂时不显式传，让 Hermes 自动用 run_id 做 session_id，保证多个 run
-   * 之间互不干扰；未来要支持"多轮连续会话"可以换成传 `session_id: commandId`
-   * 之类的映射。
+   * 关于"多轮对话"：
+   *   Hermes 的 `_create_agent` 在每个 run 启动时都会新建一个 Agent 实例，
+   *   所以 LLM 本身默认没有跨 run 记忆。要实现连续对话必须同时给两样东西：
+   *
+   *     1. `session_id` —— Hermes 用它把多次 run 归属同一个会话／sandbox／approval scope。
+   *        不传则 Hermes 用 run_id 当 session_id，导致每次 run 变成全新会话。
+   *     2. `conversation_history` —— 真正喂给 LLM 的对话历史。Hermes `_handle_runs`
+   *        会把它当作 prefix 注入 agent.run_conversation 的 conversation_history 参数。
+   *
+   *   只传 `session_id` 不够——LLM 仍然看不到前几轮。只传 history 也不够——
+   *   工具审批／sandbox 状态仍会被视为新会话。
+   *
+   *   这里我们用项目 `command_sessions.id` 作为 Hermes 的 session_id。这样前端
+   *   "同一次进入 Command Center = 同一条 Hermes 会话"的语义和 Hermes 内部
+   *   sandbox 的生命周期对齐。
+   *
+   * metadata 里的 commandId / sessionId / context 是我们自己要的溯源信息，
+   * Hermes 会忽略未知字段。
    */
   async function createRun(
     input: HermesMessageInput,
     logger?: Logger,
   ): Promise<{ runId: string }> {
-    const body = {
+    const body: Record<string, unknown> = {
       input: input.message,
       model: "hermes-agent",
+      session_id: input.sessionId,
       metadata: {
         commandId: input.commandId,
         sessionId: input.sessionId,
         context: input.context,
       },
     };
+    if (input.history && input.history.length > 0) {
+      body.conversation_history = input.history;
+    }
     const resp = await postJson<{
       run_id?: string;
       runId?: string;

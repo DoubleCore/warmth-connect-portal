@@ -14,6 +14,7 @@ import type {
 import {
   hermesClient,
   HermesError,
+  type HermesHistoryTurn,
   type HermesRawEvent,
 } from "./hermes.client.js";
 import { commandEventBus } from "./command.bus.js";
@@ -91,8 +92,20 @@ export async function sendMessage(
   });
 
   const cmdLogger = logger.child({ commandId: command.id, sessionId });
+
+  // 多轮连续对话：把同一个 session 里历史上已完成的 command 拼成 Hermes
+  // conversation_history 一起发过去。Hermes `_create_agent` 每次 run 都会
+  // 重建 Agent 实例，仅靠 session_id 无法让 LLM 看到前几轮——必须把
+  // 历史显式喂进去（api_server.py::_handle_runs）。
+  //
+  // 这里只取 `completed` 的历史记录：`running` 还没有结果，`failed`/`cancelled`
+  // 的 assistant 侧不代表真实回答，灌进去只会污染上下文。
+  const history = await buildConversationHistory(sessionId, command.id, cmdLogger);
   cmdLogger.info(
-    { messagePreview: input.message.slice(0, 200) },
+    {
+      messagePreview: input.message.slice(0, 200),
+      historyTurns: history.length,
+    },
     "Command accepted, dispatching asynchronously",
   );
 
@@ -101,6 +114,7 @@ export async function sendMessage(
     sessionId,
     userMessage: input.message,
     context: input.context ?? {},
+    history,
     logger: cmdLogger,
   });
 
@@ -111,6 +125,65 @@ export async function sendMessage(
   };
 }
 
+/**
+ * 从 DB 把同一 session 里历史对话重组成 Hermes conversation_history。
+ *
+ * 每条历史 command 贡献两个 turn：
+ *   1. user:      userMessage
+ *   2. assistant: 从 resultJson 里解出来的 output 字符串
+ *
+ * 跳过 assistant 内容为空（比如 output 是非字符串结构化数据）或状态非 completed 的记录——
+ * LLM 吃到空 assistant 比吃不到这轮还糟糕。
+ */
+async function buildConversationHistory(
+  sessionId: string,
+  excludeCommandId: string,
+  logger: Logger,
+): Promise<HermesHistoryTurn[]> {
+  const rows = await repo.listCommandsBySession(sessionId, excludeCommandId);
+  const history: HermesHistoryTurn[] = [];
+  for (const row of rows) {
+    if (row.status !== "completed") continue;
+    const assistantText = extractAssistantText(row.resultJson);
+    if (!assistantText) continue;
+    history.push({ role: "user", content: row.userMessage });
+    history.push({ role: "assistant", content: assistantText });
+  }
+  if (history.length > 0) {
+    logger.debug(
+      { turns: history.length, commandCount: history.length / 2 },
+      "Assembled conversation history for Hermes",
+    );
+  }
+  return history;
+}
+
+/**
+ * Hermes run.completed 的结果结构：`{ output, usage }`，output 正常情况下是
+ * agent 的 final_response 字符串。runCommand 里把它原样塞进 resultJson：
+ *
+ *   repo.finalizeCommand(commandId, {
+ *     status: "completed",
+ *     result: { output: raw.data.output ?? null, usage: raw.data.usage ?? null },
+ *   })
+ *
+ * 这里只取 output 字段做 assistant content，usage（token 计数）不喂给 LLM。
+ */
+function extractAssistantText(resultJson: string | null): string | null {
+  if (!resultJson) return null;
+  try {
+    const parsed = JSON.parse(resultJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out = (parsed as { output?: unknown }).output;
+      if (typeof out === "string" && out.trim().length > 0) return out;
+    }
+    if (typeof parsed === "string" && parsed.trim().length > 0) return parsed;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------- runCommand：单流消费，挂起/续跑走 approval 控制面 ----------
 
 type RunCommandInput = {
@@ -118,6 +191,8 @@ type RunCommandInput = {
   sessionId: string;
   userMessage: string;
   context: Record<string, unknown>;
+  /** 已完成 command 的 user/assistant turn 列表，发给 Hermes 做多轮对话 prefix。 */
+  history: HermesHistoryTurn[];
   logger: Logger;
 };
 
@@ -157,7 +232,7 @@ class DeltaAggregator {
 }
 
 async function runCommand(input: RunCommandInput): Promise<void> {
-  const { commandId, sessionId, userMessage, context, logger } = input;
+  const { commandId, sessionId, userMessage, context, history, logger } = input;
 
   const aggregator = new DeltaAggregator();
   let finalized = false;
@@ -177,7 +252,13 @@ async function runCommand(input: RunCommandInput): Promise<void> {
 
     // Phase 1: 创建 run 拿到 run_id，落库供后续 approval / stop 使用
     const started = await hermesClient.streamMessage(
-      { commandId, sessionId, message: userMessage, context },
+      {
+        commandId,
+        sessionId,
+        message: userMessage,
+        context,
+        ...(history.length > 0 ? { history } : {}),
+      },
       logger,
     );
     runId = started.runId;

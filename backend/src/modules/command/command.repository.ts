@@ -1,4 +1,4 @@
-import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, ne, sql } from "drizzle-orm";
 import { db } from "@/db/client.js";
 import {
   commandEvents,
@@ -79,6 +79,28 @@ export async function insertCommand(input: {
 export async function getCommandById(id: string): Promise<CommandRow | null> {
   const rows = await db.select().from(commands).where(eq(commands.id, id)).limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * 按创建时间顺序列出某个会话里的所有 command。用于多轮对话时给 Hermes 拼
+ * `conversation_history`（只保留 completed 的）。顺序很重要——LLM 要按时间看 token。
+ *
+ * 传 `excludeId` 可跳过"当前正要发起的这条 command"，避免刚 insert 完又把自己
+ * 计进来（即便当前状态是 pending、不会被下游 history 筛选器选中，也显式排掉更安全）。
+ */
+export async function listCommandsBySession(
+  sessionId: string,
+  excludeId?: string,
+): Promise<CommandRow[]> {
+  const whereExpr = excludeId
+    ? and(eq(commands.sessionId, sessionId), ne(commands.id, excludeId))
+    : eq(commands.sessionId, sessionId);
+  const rows = await db
+    .select()
+    .from(commands)
+    .where(whereExpr)
+    .orderBy(asc(commands.createdAt));
+  return rows;
 }
 
 export async function updateCommandStatus(

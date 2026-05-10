@@ -11,6 +11,7 @@ import {
 import appCss from "../styles.css?url";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 import { I18nProvider, useI18n } from "@/lib/i18n/I18nProvider";
+import { MainCommandStreamProvider } from "@/hooks/command-stream-context";
 
 function NotFoundComponent() {
   return (
@@ -127,7 +128,9 @@ function RootComponent() {
       <I18nProvider>
         <ThemeProvider>
           <LangSync />
-          <Outlet />
+          <MainCommandStreamProvider>
+            <Outlet />
+          </MainCommandStreamProvider>
         </ThemeProvider>
       </I18nProvider>
     </QueryClientProvider>

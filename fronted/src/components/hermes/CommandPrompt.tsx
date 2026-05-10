@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Sparkles,
@@ -18,8 +18,7 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { ApiError, isNetworkError } from "@/lib/api-client";
 import { listPapers } from "@/api/papers";
 import { listReproductionRecords } from "@/api/reproduction";
-import { useCommandStream } from "@/hooks/use-command-stream";
-import { CommandConversation } from "@/components/hermes/CommandConversation";
+import { useMainCommandStream } from "@/hooks/command-stream-context";
 import type { PaperListItem } from "@/types/paper";
 import type { ReproductionRecord, ReproductionStatus } from "@/types/reproduction";
 
@@ -27,7 +26,7 @@ const RECENT_PAPERS_LIMIT = 3;
 const RECENT_RECORDS_LIMIT = 2;
 
 const quickActions = [
-  { labelKey: "home.quickAction.searchPapers", icon: Search, to: "/search" as const },
+  { labelKey: "home.quickAction.searchPapers", icon: Search, to: "/research" as const },
   { labelKey: "home.quickAction.analyzePdf", icon: FileText, to: "/library" as const },
   { labelKey: "home.quickAction.ragChat", icon: MessageSquare, to: "/search" as const },
   { labelKey: "home.quickAction.manageTraining", icon: Cpu, to: "/workspace" as const },
@@ -56,14 +55,11 @@ const statusAccent: Record<ReproductionStatus, string> = {
 export function CommandPrompt() {
   const [value, setValue] = useState("");
   const { t } = useI18n();
+  const navigate = useNavigate();
 
-  // Hermes 指令中心主入口：主页的输入框直接对接 Backend Command Center
-  // （Hermes_Command_Center_HTTP_直连可用版.md §5）。
-  // 会话在首次 run 时懒创建，entry="home" 写入 command_sessions.entry 便于埋点。
-  const command = useCommandStream({
-    entry: "home",
-    baseContext: { currentPage: "home" },
-  });
+  // 主页与 /research 子页面共享同一条指令流（见 command-stream-context.tsx）。
+  // 主页的输入框负责"发送 + 跳转"；/research 负责"展示进度 + 结果 + 追问"。
+  const command = useMainCommandStream();
 
   const isBusy =
     command.phase === "connecting" ||
@@ -76,12 +72,11 @@ export function CommandPrompt() {
     if (!trimmed || isBusy) return;
     // 清空输入框，保留上一次值可能会让用户误以为指令没发出去
     setValue("");
+    // 先导航，后发起 run —— 这样 /research 挂载时就已经有最新的 user bubble，
+    // 避免用户在主页短暂看到自己的消息后才被切走。
+    void navigate({ to: "/research" });
     await command.run(trimmed);
   };
-
-  // idle 时展示 Quick Actions + Recent；非 idle 切换为对话式布局，
-  // 避免与进行中的指令过程抢注意力。
-  const showIdleSurface = command.phase === "idle";
 
   return (
     <div className="mx-auto w-full max-w-4xl px-8 py-14">
@@ -125,36 +120,22 @@ export function CommandPrompt() {
         </div>
       </form>
 
-      {showIdleSurface ? (
-        <>
-          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-            {quickActions.map(({ labelKey, icon: Icon, to }) => (
-              <Link
-                key={labelKey}
-                to={to}
-                className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-4 py-6 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-glow)]"
-              >
-                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
-                  <Icon className="h-5 w-5" aria-hidden />
-                </span>
-                <span className="text-sm font-medium">{t(labelKey)}</span>
-              </Link>
-            ))}
-          </div>
+      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+        {quickActions.map(({ labelKey, icon: Icon, to }) => (
+          <Link
+            key={labelKey}
+            to={to}
+            className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-4 py-6 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-glow)]"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
+              <Icon className="h-5 w-5" aria-hidden />
+            </span>
+            <span className="text-sm font-medium">{t(labelKey)}</span>
+          </Link>
+        ))}
+      </div>
 
-          <RecentActivity />
-        </>
-      ) : (
-        <CommandConversation
-          phase={command.phase}
-          transcript={command.transcript}
-          pendingConfirmation={command.pendingConfirmation}
-          error={command.error}
-          onConfirm={() => void command.respondConfirmation("confirm")}
-          onCancel={() => void command.respondConfirmation("cancel")}
-          onReset={command.reset}
-        />
-      )}
+      <RecentActivity />
     </div>
   );
 }
