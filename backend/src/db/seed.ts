@@ -1,13 +1,25 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "./client.js";
-import { devices, paperAnalysis, paperReproductionRecords, papers } from "./schema.js";
+import {
+  devices,
+  paperAnalysis,
+  paperReproductionRecords,
+  papers,
+  ragPapers,
+  userProfile,
+} from "./schema.js";
 import { logger } from "@/shared/logger.js";
 
 /**
  * Idempotent seed: each row is checked by a natural key (paper.title,
- * device.name, reproduction record = (paperId, deviceId?)) before inserting.
+ * device.name, reproduction record = (paperId, deviceId?), rag paper.title,
+ * profile row id = 1) before inserting.
  * Running this script multiple times will top up any missing sample data
  * without duplicating existing rows.
+ *
+ * 注意：Hermes 指令中心的 commands / command_sessions / command_events 三张
+ * 表刻意不在 seed 范围内——那是用户真实会话轨迹，seed 进去只会让排障更
+ * 困难（看到"示例会话"会误以为是自己的历史）。
  */
 
 type PaperSeed = {
@@ -19,6 +31,8 @@ type PaperSeed = {
   publishedYear: number | null;
   paperUrl: string | null;
   pdfUrl: string | null;
+  /** 代码仓库 URL（paper-code-finder / repo-backfill 回写） */
+  repoUrl: string | null;
   pdfStoragePath: string | null;
   analysis: {
     taskDefinition: string | null;
@@ -45,8 +59,21 @@ type ReproductionSeed = {
   progress: number;
   resultSummary: string | null;
   artifactUrl: string | null;
+  /** 训练修改记录，自由文本（reproduction-tracker skill 回写） */
+  trainingNotes: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+};
+
+/**
+ * RAG 语料表（rag_papers）独立于 papers。用 title 作天然键去重。
+ * rag_papers_fts 虚表由 triggers 自动同步，seed 只管主表即可。
+ */
+type RagPaperSeed = {
+  title: string;
+  abstract: string;
+  authors: string[];
+  venue: string | null;
 };
 
 const paperSeeds: PaperSeed[] = [
@@ -69,6 +96,7 @@ const paperSeeds: PaperSeed[] = [
     publishedYear: 2017,
     paperUrl: "https://papers.nips.cc/paper/7181-attention-is-all-you-need",
     pdfUrl: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf",
+    repoUrl: "https://github.com/tensorflow/tensor2tensor",
     pdfStoragePath: "NIPS-2017-attention-is-all-you-need-Paper.pdf",
     analysis: {
       taskDefinition: "Sequence transduction (machine translation, parsing).",
@@ -91,6 +119,7 @@ const paperSeeds: PaperSeed[] = [
     publishedYear: null,
     paperUrl: null,
     pdfUrl: null,
+    repoUrl: null,
     pdfStoragePath: "Conditional Memory via Scalable Lookup.pdf",
     analysis: null,
   },
@@ -104,6 +133,7 @@ const paperSeeds: PaperSeed[] = [
     publishedYear: 2022,
     paperUrl: "https://arxiv.org/abs/2201.11903",
     pdfUrl: "https://arxiv.org/pdf/2201.11903.pdf",
+    repoUrl: null,
     pdfStoragePath: null,
     analysis: {
       taskDefinition: "Improve multi-step reasoning in LLMs via prompting.",
@@ -125,6 +155,7 @@ const paperSeeds: PaperSeed[] = [
     publishedYear: 2020,
     paperUrl: "https://arxiv.org/abs/2005.11401",
     pdfUrl: "https://arxiv.org/pdf/2005.11401.pdf",
+    repoUrl: "https://github.com/huggingface/transformers",
     pdfStoragePath: null,
     analysis: {
       taskDefinition: "Knowledge-intensive QA and generation with external retrieval.",
@@ -176,6 +207,7 @@ const reproductionSeeds: ReproductionSeed[] = [
     progress: 45,
     resultSummary: null,
     artifactUrl: null,
+    trainingNotes: "lr=1e-4，warmup 4000 steps；比原文 bsz 从 4096 调到 2048 以适配 A100×4 内存。",
     startedAt: hoursAgoIso(6),
     finishedAt: null,
   },
@@ -186,6 +218,8 @@ const reproductionSeeds: ReproductionSeed[] = [
     progress: 100,
     resultSummary: "Replicated GSM8K CoT accuracy within 1.2 points of the paper.",
     artifactUrl: "https://example.com/artifacts/cot-replication.zip",
+    trainingNotes:
+      "Few-shot prompt 模板复用自论文附录 A；把温度从 0.7 降到 0，消除随机性对评估波动。",
     startedAt: hoursAgoIso(30),
     finishedAt: hoursAgoIso(26),
   },
@@ -196,10 +230,67 @@ const reproductionSeeds: ReproductionSeed[] = [
     progress: 0,
     resultSummary: null,
     artifactUrl: null,
+    trainingNotes: null,
     startedAt: null,
     finishedAt: null,
   },
 ];
+
+/**
+ * rag_papers：给 /search 页面一份可检索的语料。条目不与 `papers` 表耦合，
+ * 这里特意混入一些"papers 表里没有"的论文（venue/年代不同），既能测试
+ * FTS5 检索，也能让前端展示更有层次。
+ */
+const ragPaperSeeds: RagPaperSeed[] = [
+  {
+    title: "Attention Is All You Need",
+    authors: ["Ashish Vaswani", "Noam Shazeer", "Niki Parmar"],
+    venue: "NeurIPS 2017",
+    abstract:
+      "We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train.",
+  },
+  {
+    title: "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+    authors: ["Jacob Devlin", "Ming-Wei Chang", "Kenton Lee", "Kristina Toutanova"],
+    venue: "NAACL 2019",
+    abstract:
+      "We introduce a new language representation model called BERT, which stands for Bidirectional Encoder Representations from Transformers. BERT is designed to pre-train deep bidirectional representations from unlabeled text by jointly conditioning on both left and right context in all layers.",
+  },
+  {
+    title: "LLaMA: Open and Efficient Foundation Language Models",
+    authors: ["Hugo Touvron", "Thibaut Lavril", "Gautier Izacard"],
+    venue: "arXiv 2023",
+    abstract:
+      "We introduce LLaMA, a collection of foundation language models ranging from 7B to 65B parameters. We train our models on trillions of tokens, and show that it is possible to train state-of-the-art models using publicly available datasets exclusively, without resorting to proprietary and inaccessible datasets.",
+  },
+  {
+    title: "Scaling Laws for Neural Language Models",
+    authors: ["Jared Kaplan", "Sam McCandlish", "Tom Henighan"],
+    venue: "arXiv 2020",
+    abstract:
+      "We study empirical scaling laws for language model performance on the cross-entropy loss. The loss scales as a power-law with model size, dataset size, and the amount of compute used for training, with some trends spanning more than seven orders of magnitude.",
+  },
+  {
+    title: "Chinchilla: Training Compute-Optimal Large Language Models",
+    authors: ["Jordan Hoffmann", "Sebastian Borgeaud", "Arthur Mensch"],
+    venue: "NeurIPS 2022",
+    abstract:
+      "We investigate the optimal model size and number of tokens for training a transformer language model under a given compute budget. We find that current large language models are significantly undertrained, a consequence of the recent focus on scaling language models whilst keeping the amount of training data constant.",
+  },
+  {
+    title: "Direct Preference Optimization: Your Language Model is Secretly a Reward Model",
+    authors: ["Rafael Rafailov", "Archit Sharma", "Eric Mitchell"],
+    venue: "NeurIPS 2023",
+    abstract:
+      "We introduce Direct Preference Optimization (DPO), a new parameterization of the reward model in RLHF that enables extraction of the corresponding optimal policy in closed form, allowing us to solve the standard RLHF problem with only a simple classification loss.",
+  },
+];
+
+/**
+ * user_profile：单行表，id 锁为 1。seed 只在当前 username 为空时填充一个
+ * 默认值，避免覆盖用户在 Settings 页改过的名字。
+ */
+const DEFAULT_USERNAME = "Hermes Researcher";
 
 function hoursAgoIso(hours: number): string {
   return new Date(Date.now() - hours * 3600 * 1000).toISOString();
@@ -225,6 +316,7 @@ async function upsertPapers() {
           publishedYear: p.publishedYear,
           paperUrl: p.paperUrl,
           pdfUrl: p.pdfUrl,
+          repoUrl: p.repoUrl,
           pdfStoragePath: p.pdfStoragePath,
         })
         .returning({ id: papers.id });
@@ -319,6 +411,7 @@ async function upsertReproductionRecords(
       progress: r.progress,
       resultSummary: r.resultSummary,
       artifactUrl: r.artifactUrl,
+      trainingNotes: r.trainingNotes,
       startedAt: r.startedAt,
       finishedAt: r.finishedAt,
     });
@@ -329,10 +422,64 @@ async function upsertReproductionRecords(
   }
 }
 
+/**
+ * rag_papers：按 title 去重。rag_papers_fts 虚表由 triggers 自动同步，
+ * 这里不用手动碰 FTS 侧。
+ */
+async function upsertRagPapers() {
+  for (const r of ragPaperSeeds) {
+    const existing = await db
+      .select({ id: ragPapers.id })
+      .from(ragPapers)
+      .where(eq(ragPapers.title, r.title))
+      .limit(1);
+    if (existing.length > 0) {
+      logger.info({ title: r.title, id: existing[0]!.id }, "rag paper already exists, skipping");
+      continue;
+    }
+    const [inserted] = await db
+      .insert(ragPapers)
+      .values({
+        title: r.title,
+        abstract: r.abstract,
+        authorsJson: JSON.stringify(r.authors),
+        venue: r.venue,
+      })
+      .returning({ id: ragPapers.id });
+    if (!inserted) throw new Error(`Failed to insert rag paper "${r.title}"`);
+    logger.info({ title: r.title, id: inserted.id }, "inserted rag paper");
+  }
+}
+
+/**
+ * user_profile：只在当前 row 不存在，或 username 为 null 时写入默认值。
+ * 已设过用户名的本地环境不会被覆盖。
+ */
+async function upsertUserProfile() {
+  const existing = await db.select().from(userProfile).limit(1);
+  if (existing.length === 0) {
+    await db.insert(userProfile).values({ id: 1, username: DEFAULT_USERNAME });
+    logger.info({ username: DEFAULT_USERNAME }, "inserted default user profile");
+    return;
+  }
+  const current = existing[0]!;
+  if (current.username == null || current.username.trim() === "") {
+    await db
+      .update(userProfile)
+      .set({ username: DEFAULT_USERNAME, updatedAt: new Date().toISOString() })
+      .where(eq(userProfile.id, current.id));
+    logger.info({ username: DEFAULT_USERNAME }, "filled empty username");
+    return;
+  }
+  logger.info({ username: current.username }, "user profile already populated, skipping");
+}
+
 async function seed() {
   const titleToId = await upsertPapers();
   const nameToId = await upsertDevices();
   await upsertReproductionRecords(titleToId, nameToId);
+  await upsertRagPapers();
+  await upsertUserProfile();
   logger.info("Seed completed successfully");
 }
 

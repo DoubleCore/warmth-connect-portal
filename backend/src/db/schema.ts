@@ -108,6 +108,31 @@ export const ragPapers = sqliteTable(
 );
 
 /**
+ * rag_paper_embeddings：rag_papers 的向量缓存。
+ * 对应 Design_SQLite_Abstract_RAG.md §7.2。
+ *
+ * SQLite 没有原生向量类型，embedding 用 JSON 字符串存 (number[])，
+ * service 层负责 parse / cosine similarity。字段少、写入稀疏，单表即可。
+ *
+ * `paperId` 作主键 = 一篇论文最多一条 embedding。重新生成（换模型 / 重索引）
+ * 走 UPSERT（DELETE + INSERT 或 INSERT ON CONFLICT DO UPDATE）。
+ */
+export const ragPaperEmbeddings = sqliteTable("rag_paper_embeddings", {
+  paperId: integer("paper_id")
+    .primaryKey()
+    .references(() => ragPapers.id, { onDelete: "cascade" }),
+  // 生成 embedding 用的原文（title + abstract 拼接后的结果），方便调试与回填
+  embeddingText: text("embedding_text").notNull(),
+  // 向量 JSON（number[]）
+  embeddingJson: text("embedding_json").notNull(),
+  // 使用的模型名，换模型时可用来判断哪些条目需要重建
+  embeddingModel: text("embedding_model").notNull(),
+  createdAt: text("created_at")
+    .notNull()
+    .default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+/**
  * devices：设备管理表
  * 对应设计文档 4.5
  */
@@ -172,6 +197,8 @@ export type PaperAnalysisRow = typeof paperAnalysis.$inferSelect;
 export type NewPaperAnalysisRow = typeof paperAnalysis.$inferInsert;
 export type RagPaperRow = typeof ragPapers.$inferSelect;
 export type NewRagPaperRow = typeof ragPapers.$inferInsert;
+export type RagPaperEmbeddingRow = typeof ragPaperEmbeddings.$inferSelect;
+export type NewRagPaperEmbeddingRow = typeof ragPaperEmbeddings.$inferInsert;
 export type DeviceRow = typeof devices.$inferSelect;
 export type NewDeviceRow = typeof devices.$inferInsert;
 export type ReproductionRecordRow = typeof paperReproductionRecords.$inferSelect;

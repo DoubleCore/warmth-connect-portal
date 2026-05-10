@@ -1,6 +1,19 @@
 import "dotenv/config";
 import { z } from "zod";
 
+/**
+ * 把 "" 视作 undefined。
+ *
+ * .env 里常见写法 `LLM_API_KEY=` 会被 dotenv 解析成空字符串而不是缺失，
+ * 直接套 `.optional()` 的话空字符串会走到内层 `.min(1)` 报错。
+ * 对所有"允许留空"的可选 key 都套一层这个，让"缺失"和"留空"等价。
+ */
+const optionalString = () =>
+  z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().min(1).optional(),
+  );
+
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   PORT: z.coerce.number().int().positive().default(8787),
@@ -14,7 +27,18 @@ const envSchema = z.object({
   HERMES_BASE_URL: z.string().url().default("http://127.0.0.1:8642"),
   HERMES_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
   // 可选。Hermes 侧若启用 token 鉴权，则通过 Authorization: Bearer <key> 携带。
-  HERMES_API_KEY: z.string().min(1).optional(),
+  HERMES_API_KEY: optionalString(),
+
+  // ---------- RAG LLM / Embedding ----------
+  // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
+  // 任意 OpenAI 兼容的服务都行（OpenAI / DeepSeek / 本地 ollama / DashScope 兼容模式）。
+  // 三个 *_MODEL 和 *_BASE_URL / *_API_KEY 都留空 → 整个 RAG LLM 链路被禁用，
+  // POST /api/rag/query 会 503，但 GET /api/rag/search（FTS5 关键词）照常工作。
+  LLM_API_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
+  LLM_API_KEY: optionalString(),
+  LLM_CHAT_MODEL: z.string().min(1).default("gpt-4o-mini"),
+  LLM_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
+  LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -30,8 +54,8 @@ export const corsOrigins =
   env.CORS_ORIGIN === "*"
     ? "*"
     : env.CORS_ORIGIN.split(",")
-        .map((s) => s.trim())
-        .filter(Boolean);
+      .map((s) => s.trim())
+      .filter(Boolean);
 
 /** Hard limit for uploaded PDF body size. Tunable via env if we ever need to. */
 export const PDF_MAX_BYTES = 26 * 1024 * 1024; // 26 MB

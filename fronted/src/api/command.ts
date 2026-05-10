@@ -95,3 +95,16 @@ export async function listCommandEvents(commandId: string): Promise<{
 }> {
   return apiFetch(`/api/command/commands/${encodeURIComponent(commandId)}/events`);
 }
+
+/**
+ * 拉取一个 session 的完整历史（所有 command + 事件流）。
+ * 前端挂载时根据 localStorage 里的 sessionId 调它恢复 transcript。
+ * Session 失效时后端返回 404（会被 api-client 抛 ApiError.status=404）。
+ */
+export async function getCommandSessionHistory(
+  sessionId: string,
+): Promise<CommandSessionHistoryDto> {
+  return apiFetch<CommandSessionHistoryDto>(
+    `/api/command/sessions/${encodeURIComponent(sessionId)}/history`,
+  );
+}

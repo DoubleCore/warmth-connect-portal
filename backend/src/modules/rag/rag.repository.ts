@@ -1,6 +1,6 @@
 import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db, rawDb } from "@/db/client.js";
-import { ragPapers, type RagPaperRow } from "@/db/schema.js";
+import { ragPaperEmbeddings, ragPapers, type RagPaperEmbeddingRow, type RagPaperRow } from "@/db/schema.js";
 import { offset } from "@/shared/pagination.js";
 
 /**
@@ -136,4 +136,74 @@ export async function getRagPapersByIdsPreservingOrder(
     if (row) out.push(row);
   }
   return out;
+}
+
+// ---------- Embedding CRUD ----------
+//
+// 对应 Design_SQLite_Abstract_RAG.md §7.2。CRUD 很浅，主要目的：
+//   · upsert：录入论文 / reindex 时把新生成的向量覆盖旧值
+//   · 批量 get：query 时一次性把 Top-N 候选的向量拉回来做余弦相似度
+
+/**
+ * UPSERT embedding。SQLite 的 INSERT ... ON CONFLICT DO UPDATE 比 DELETE+INSERT
+ * 更稳妥：不会触发 ON DELETE CASCADE 和时间戳刷新的副作用。
+ */
+export async function upsertRagPaperEmbedding(input: {
+  paperId: number;
+  embeddingText: string;
+  embeddingJson: string;
+  embeddingModel: string;
+}): Promise<RagPaperEmbeddingRow> {
+  const [row] = await db
+    .insert(ragPaperEmbeddings)
+    .values({
+      paperId: input.paperId,
+      embeddingText: input.embeddingText,
+      embeddingJson: input.embeddingJson,
+      embeddingModel: input.embeddingModel,
+    })
+    .onConflictDoUpdate({
+      target: ragPaperEmbeddings.paperId,
+      set: {
+        embeddingText: input.embeddingText,
+        embeddingJson: input.embeddingJson,
+        embeddingModel: input.embeddingModel,
+        createdAt: sql`(CURRENT_TIMESTAMP)`,
+      },
+    })
+    .returning();
+  if (!row) throw new Error("Failed to upsert rag paper embedding");
+  return row;
+}
+
+export async function getRagPaperEmbeddingsByIds(
+  paperIds: number[],
+): Promise<RagPaperEmbeddingRow[]> {
+  if (paperIds.length === 0) return [];
+  return db
+    .select()
+    .from(ragPaperEmbeddings)
+    .where(inArray(ragPaperEmbeddings.paperId, paperIds));
+}
+
+/**
+ * 列出"还没有 embedding"或"embedding 用的是老模型"的论文 id，供重建。
+ * 给 /api/rag/reindex 用。不返回全字段，只返回 id 以免重复加载 abstract。
+ */
+export async function listRagPapersMissingEmbedding(
+  currentModel: string,
+  limit = 500,
+): Promise<number[]> {
+  // LEFT JOIN + WHERE e.paper_id IS NULL OR e.embedding_model != currentModel
+  const rows = rawDb
+    .prepare(
+      `SELECT p.id AS id
+         FROM rag_papers p
+         LEFT JOIN rag_paper_embeddings e ON e.paper_id = p.id
+         WHERE e.paper_id IS NULL OR e.embedding_model != ?
+         ORDER BY p.id ASC
+         LIMIT ?`,
+    )
+    .all(currentModel, limit) as Array<{ id: number }>;
+  return rows.map((r) => r.id);
 }

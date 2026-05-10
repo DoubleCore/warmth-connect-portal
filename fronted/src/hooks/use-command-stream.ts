@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "@/lib/api-client";
 import {
   createCommandSession,
+  getCommandSessionHistory,
   openCommandStream,
   postCommandConfirmation,
   sendCommandMessage,
 } from "@/api/command";
 import type {
+  CommandHistoryDto,
   CommandRuntimePhase,
+  CommandStatus,
   CommandStreamEvent,
   CommandStreamEventType,
   ConfirmAction,
@@ -94,6 +97,92 @@ function makeTranscriptId(commandId: string, kind: string, seq: number): string 
   return `${commandId}:${kind}:${seq}`;
 }
 
+/**
+ * localStorage key：按 entry 分 namespace，避免不同入口共享 sessionId。
+ * 比如 home 页面和 settings 飞书卡片是两条独立的会话轨迹。
+ */
+function sessionStorageKey(entry: string | undefined): string {
+  return `hermes.command.sessionId.${entry ?? "__default__"}`;
+}
+
+/** 安全地读 localStorage——SSR 环境 / 隐私模式 / 被禁用时都优雅回退成 null。 */
+function readStoredSessionId(entry: string | undefined): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(sessionStorageKey(entry));
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSessionId(entry: string | undefined, sessionId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = sessionStorageKey(entry);
+    if (sessionId) window.localStorage.setItem(key, sessionId);
+    else window.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * 把后端 `CommandSessionHistoryDto` 重新拍平成前端 `transcript`。
+ *
+ * 规则：
+ *   - 每条 command 先 push 一个 user bubble
+ *   - 再依次 push 它的全部 event bubble（保持后端落库顺序）
+ *   - seq 用一个单调计数器保证 React key 不冲突
+ *
+ * 对于历史 command，我们**不会**过滤 thinking/tool_* 这些中间态事件——前端 UI
+ * 本来就按事件流渲染，过滤反而会让新旧展示不一致。
+ */
+function historyToTranscript(commands: CommandHistoryDto[]): {
+  items: CommandTranscriptItem[];
+  seq: number;
+} {
+  const items: CommandTranscriptItem[] = [];
+  let seq = 0;
+  for (const cmd of commands) {
+    items.push({
+      kind: "user",
+      id: `${cmd.commandId}:user`,
+      message: cmd.userMessage,
+      createdAt: Date.parse(cmd.createdAt) || Date.now(),
+    });
+    for (const ev of cmd.events) {
+      items.push({
+        kind: "event",
+        id: makeTranscriptId(cmd.commandId, ev.type, seq++),
+        event: ev,
+        createdAt: Date.parse(cmd.createdAt) || Date.now(),
+      });
+    }
+  }
+  return { items, seq };
+}
+
+/**
+ * 从最后一条 command 的 status 推断一个合适的 phase。
+ * 只影响"刷新后的初始 phase"：如果历史最后一条没跑完（running / waiting_confirmation），
+ * 说明用户在流进行中断开过连接——退化成 `idle`，让用户手动重发，
+ * 而不是 UI 上假装仍在 streaming（我们没有现成的 SSE 流重连到历史 command 上）。
+ */
+function phaseFromLastCommand(status: CommandStatus | undefined): CommandRuntimePhase {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    case undefined:
+      return "idle";
+    default:
+      return "idle";
+  }
+}
+
 export function useCommandStream(options?: {
   /** 进入页面时带的入口标签，写入 command_sessions.entry，便于埋点区分 */
   entry?: string;
@@ -129,6 +218,45 @@ export function useCommandStream(options?: {
     return () => closeStream();
   }, [closeStream]);
 
+  // ---------- 刷新恢复 ----------
+  // 挂载时如果 localStorage 里存着 sessionId，就去后端拉整段历史回填 transcript。
+  // 后端单一真相，localStorage 只缓存 sessionId 字符串；命中 404 就丢掉失效 id。
+  const entry = options?.entry;
+  useEffect(() => {
+    const stored = readStoredSessionId(entry);
+    if (!stored) return;
+
+    let cancelled = false;
+    sessionIdRef.current = stored;
+    (async () => {
+      try {
+        const history = await getCommandSessionHistory(stored);
+        if (cancelled) return;
+        const { items, seq } = historyToTranscript(history.commands);
+        seqRef.current = seq;
+        setTranscript(items);
+        const last = history.commands[history.commands.length - 1];
+        setCurrentCommandId(last?.commandId ?? null);
+        setPhase(phaseFromLastCommand(last?.status));
+      } catch (err) {
+        if (cancelled) return;
+        // 失效的 sessionId：丢掉，让下一次 run() 创建新会话
+        if (err instanceof ApiError && err.status === 404) {
+          sessionIdRef.current = null;
+          writeStoredSessionId(entry, null);
+          return;
+        }
+        // 其他错误（离线 / 5xx）：保留 sessionId 但不报红，让用户仍可以发消息
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // entry 是 hook 的入参；切换 entry 等价于挂载新的 hook 实例，所以
+    // 这里显式把它列为唯一依赖，无需 exhaustive-deps 关心其他变量。
+  }, [entry]);
+
   const ensureSession = useCallback(async (): Promise<string> => {
     if (sessionIdRef.current) return sessionIdRef.current;
     const created = await createCommandSession({
@@ -136,6 +264,7 @@ export function useCommandStream(options?: {
       initialContext: options?.baseContext,
     });
     sessionIdRef.current = created.sessionId;
+    writeStoredSessionId(options?.entry, created.sessionId);
     return created.sessionId;
   }, [options?.entry, options?.baseContext]);
 
@@ -355,6 +484,7 @@ export function useCommandStream(options?: {
    * 等价于 reset() + 丢弃 sessionId。
    * 下一次 run() 会重新 POST /api/command/sessions 创建新会话，
    * Backend 侧的 conversation_history 也就从空开始。
+   * 同时清掉 localStorage 缓存，避免刷新后又把旧会话拉回来。
    */
   const newSession = useCallback(() => {
     closeStream();
@@ -365,7 +495,8 @@ export function useCommandStream(options?: {
     setPhase("idle");
     seqRef.current = 0;
     sessionIdRef.current = null;
-  }, [closeStream]);
+    writeStoredSessionId(options?.entry, null);
+  }, [closeStream, options?.entry]);
 
   return {
     phase,

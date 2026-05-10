@@ -12,6 +12,7 @@ import appCss from "../styles.css?url";
 import { ThemeProvider } from "@/lib/theme/ThemeProvider";
 import { I18nProvider, useI18n } from "@/lib/i18n/I18nProvider";
 import { MainCommandStreamProvider } from "@/hooks/command-stream-context";
+import { FloatingAssistant } from "@/components/hermes/FloatingAssistant";
 
 function NotFoundComponent() {
   return (
@@ -130,6 +131,7 @@ function RootComponent() {
           <LangSync />
           <MainCommandStreamProvider>
             <Outlet />
+            <FloatingAssistant />
           </MainCommandStreamProvider>
         </ThemeProvider>
       </I18nProvider>

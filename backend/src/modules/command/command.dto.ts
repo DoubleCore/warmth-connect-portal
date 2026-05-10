@@ -72,40 +72,40 @@ export type CommandMessageResponseDto = {
  */
 export type CommandStreamEvent =
   | {
-    type: "thinking";
-    message: string;
-  }
+      type: "thinking";
+      message: string;
+    }
   | {
-    type: "agent_message";
-    message: string;
-  }
+      type: "agent_message";
+      message: string;
+    }
   | {
-    type: "tool_start";
-    toolName: string;
-    displayName: string;
-  }
+      type: "tool_start";
+      toolName: string;
+      displayName: string;
+    }
   | {
-    type: "tool_result";
-    toolName: string;
-    summary: string;
-    result?: unknown;
-  }
+      type: "tool_result";
+      toolName: string;
+      summary: string;
+      result?: unknown;
+    }
   | {
-    type: "need_confirmation";
-    confirmationId: string;
-    message: string;
-    payload: unknown;
-  }
+      type: "need_confirmation";
+      confirmationId: string;
+      message: string;
+      payload: unknown;
+    }
   | {
-    type: "final";
-    message?: string;
-    result: unknown;
-  }
+      type: "final";
+      message?: string;
+      result: unknown;
+    }
   | {
-    type: "error";
-    message: string;
-    code?: string;
-  };
+      type: "error";
+      message: string;
+      code?: string;
+    };
 
 // ---------- 确认（Phase 3） ----------
 

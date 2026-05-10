@@ -14,12 +14,11 @@ import {
 } from "lucide-react";
 import { z } from "zod";
 import { Shell } from "@/components/hermes/Shell";
-import { useDebounce } from "@/hooks/use-debounce";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { getRagScope, searchRagPapers } from "@/api/rag";
+import { askRag, getRagScope } from "@/api/rag";
 import { ApiError } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
-import type { RagSearchResult } from "@/types/rag";
+import type { RagQueryReference, RagQueryResponse } from "@/types/rag";
 
 const searchSchema = z.object({
   q: z.string().optional(),
@@ -37,48 +36,56 @@ export const Route = createFileRoute("/search")({
 });
 
 /**
- * RAG Search 页面采用"对话 + 当前上下文"的布局：
+ * RAG Search 页 —— 对话式 Q&A 面板。
  *
- *   ┌─ 顶栏: 页面标题 + 所选模型 ──────────────┐
- *   ├─ 左侧: 对话气泡（user/assistant）           ─ 右侧: Current Source / Data Extraction / Execution Context
- *   └─ 底部: 输入条（只读展示，敲回车仍触发搜索）
+ * 数据流（对齐 Design_SQLite_Abstract_RAG.md §9.1）：
  *
- * 数据源仍然是 /api/rag/search（FTS5 关键词检索）。用户的每条 query 会创建一个
- * "你问 + 系统答"对；命中结果里的首条被抬升为 "Current Source"，其他进"参考文件"芯片。
+ *   用户在底部输入问题
+ *     ↓
+ *   POST /api/rag/query  (backend: FTS 召回 → embedding rerank → LLM 生成)
+ *     ↓
+ *   左侧渲染：助手气泡（answer） + 引用卡片（references）
+ *   右侧渲染：Current Source（Top 1 引用） / Data Extraction（Top 1 元数据）
+ *             / Execution Context（scope + 模型名 + 是否用了 embedding）
+ *
+ * 交互上故意不做 debounce / 随字符触发：每条 query 都是真钱（LLM 调用），
+ * 只在用户按下 Enter 或点发送按钮时才打一次。
+ *
+ * 降级：
+ *   · backend 未配置 LLM_API_KEY → 503 LLM_NOT_CONFIGURED：助手气泡展示
+ *     引导去配置的提示，而不是红色 error。
+ *   · 语料里没命中相关论文 → backend 照样返回"没找到"的 answer，不抛错。
  */
 function RagSearchPage() {
   const { t } = useI18n();
   const { q: urlQuery } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
-  // 历史对话。只保留用户输入，helper 会渲染为气泡；助手气泡直接从 query 结果生成。
-  const [history, setHistory] = useState<string[]>(urlQuery ? [urlQuery] : []);
+  // 对话历史：每一轮 = 用户问题 + 最终从 /query 拿到的响应（或错误）。
+  // 仅保留"已提交"的问题，输入中的草稿活在 draft state 里。
+  type Turn = {
+    id: string;
+    question: string;
+    // 以下字段在当前轮还在请求时可能为 null；完成后再填充
+    response: RagQueryResponse | null;
+    error: ApiError | Error | null;
+    loading: boolean;
+  };
+  const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
 
-  // 当前"活跃 query"驱动右侧数据面板 + 最新一条助手气泡。用 debounce 让用户
-  // 在对话式输入框里边打字边看结果时不至于每个字一次请求。
-  const activeQuery = history[history.length - 1] ?? "";
-  const debouncedActive = useDebounce(activeQuery, 400);
-
-  // URL 同步方便分享
+  // 页面首次挂载时，如果 URL 带 ?q=xxx，自动当作第一次提问发出去。
+  // 之后不再用 URL 驱动——避免每次输入都 push 历史。
+  const initialFired = useRef(false);
   useEffect(() => {
-    const trimmed = debouncedActive.trim();
-    navigate({
-      search: (prev) => ({ ...prev, q: trimmed ? trimmed : undefined }),
-      replace: true,
-    });
-  }, [debouncedActive, navigate]);
-
-  const trimmedQ = debouncedActive.trim();
-  const searchQuery = useQuery({
-    queryKey: ["rag-search", trimmedQ] as const,
-    queryFn: () => searchRagPapers(trimmedQ, 10),
-    enabled: trimmedQ.length > 0,
-    retry: (failureCount, error) => {
-      if (error instanceof ApiError && error.status === 400) return false;
-      return failureCount < 2;
-    },
-  });
+    if (initialFired.current) return;
+    initialFired.current = true;
+    const q = urlQuery?.trim();
+    if (q) {
+      void submitQuestion(q);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const scopeQuery = useQuery({
     queryKey: ["rag-scope"] as const,
@@ -86,46 +93,66 @@ function RagSearchPage() {
     staleTime: 5 * 60_000,
   });
 
-  const latency = searchQuery.dataUpdatedAt
-    ? Math.max(1, searchQuery.dataUpdatedAt - (searchQuery.data?.items.length ? 0 : 0))
-    : null;
-  void latency; // reserved for future: measure real round-trip
-
-  const topResult = searchQuery.data?.items[0];
-  const otherResults = (searchQuery.data?.items ?? []).slice(1, 4);
-
-  // 助手最终回复：拼命中的首条摘要 + 两条引用卡片。没命中则给提示。
-  const assistantPanels = useAssistantPanels(topResult);
-
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTop = el.scrollHeight;
-  }, [history.length, searchQuery.data?.query]);
+  // ---- 核心：提交一条新问题 ----
+  async function submitQuestion(question: string) {
+    const id =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `turn_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setTurns((prev) => [...prev, { id, question, response: null, error: null, loading: true }]);
+    // URL 同步：保留最后一次 query，方便分享/刷新
+    navigate({
+      search: (prev) => ({ ...prev, q: question }),
+      replace: true,
+    });
+    try {
+      const res = await askRag(question, 5);
+      setTurns((prev) =>
+        prev.map((t2) => (t2.id === id ? { ...t2, response: res, loading: false } : t2)),
+      );
+    } catch (err) {
+      const asError = err instanceof Error ? err : new Error(String(err));
+      setTurns((prev) =>
+        prev.map((t2) =>
+          t2.id === id ? { ...t2, error: asError as ApiError | Error, loading: false } : t2,
+        ),
+      );
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const v = draft.trim();
     if (!v) return;
-    setHistory((prev) => [...prev, v]);
     setDraft("");
+    void submitQuestion(v);
   };
 
-  const isLoading = trimmedQ.length > 0 && (searchQuery.isLoading || searchQuery.isFetching);
-  const hasAnyResult = searchQuery.data && searchQuery.data.items.length > 0;
+  // 滚动到最后一条
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const latestTurn = turns[turns.length - 1];
+  const latestLoading = latestTurn?.loading ?? false;
+  const latestResponse = latestTurn?.response ?? null;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [turns.length, latestLoading, latestResponse]);
+
+  // 右侧面板：用最近一轮成功响应的 Top 1 引用驱动
+  const topReference = latestTurn?.response?.references[0];
 
   return (
     <Shell active="None">
-      {/* 页面自身一个头（在 Shell 的 TopBar 下方再加一条），精确对齐截图 */}
       <div className="flex h-[calc(100vh-69px)] flex-col">
+        {/* 页面头 */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-semibold tracking-tight">{t("search.pageTitleShort")}</h1>
             <span className="flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-muted-foreground">
               <span className="opacity-70">{t("search.modelLabel")}</span>
               <span className="rounded-md bg-secondary/60 px-2 py-1 font-mono text-[11px] text-foreground">
-                GPT-4-RESEARCH-EXT
+                {latestTurn?.response?.model ?? "—"}
               </span>
             </span>
           </div>
@@ -149,23 +176,10 @@ function RagSearchPage() {
           {/* 左：对话 */}
           <div className="flex min-h-0 flex-1 flex-col">
             <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto pr-2">
-              {history.length === 0 ? (
+              {turns.length === 0 ? (
                 <EmptyConversation />
               ) : (
-                history.map((q, idx) => (
-                  <ConversationTurn
-                    key={`${q}-${idx}`}
-                    query={q}
-                    isLast={idx === history.length - 1}
-                    loading={idx === history.length - 1 && isLoading}
-                    error={
-                      idx === history.length - 1 && searchQuery.isError ? searchQuery.error : null
-                    }
-                    hasResult={Boolean(idx === history.length - 1 && hasAnyResult)}
-                    panels={idx === history.length - 1 ? assistantPanels : null}
-                    referenceChips={idx === history.length - 1 ? otherResults : []}
-                  />
-                ))
+                turns.map((turn) => <ConversationTurn key={turn.id} turn={turn} />)
               )}
             </div>
 
@@ -196,7 +210,7 @@ function RagSearchPage() {
               <button
                 type="submit"
                 aria-label={t("search.submit")}
-                disabled={!draft.trim()}
+                disabled={!draft.trim() || Boolean(latestTurn?.loading)}
                 className="grid h-9 w-9 place-items-center rounded-full text-primary-foreground transition-transform hover:scale-105 disabled:opacity-40"
                 style={{ background: "var(--gradient-primary)" }}
               >
@@ -207,11 +221,13 @@ function RagSearchPage() {
 
           {/* 右：当前上下文 / 数据抽取 / 执行上下文 */}
           <aside className="hidden w-[360px] shrink-0 space-y-4 overflow-y-auto border-l border-border pl-6 pb-6 lg:block">
-            <CurrentSourceCard result={topResult} loading={isLoading} />
-            <DataExtractionCard result={topResult} loading={isLoading} />
+            <CurrentSourceCard reference={topReference} loading={Boolean(latestTurn?.loading)} />
+            <DataExtractionCard reference={topReference} loading={Boolean(latestTurn?.loading)} />
             <ExecutionContextCard
               papersIndexed={scopeQuery.data?.papersIndexed}
-              latencyMs={searchQuery.isFetching ? null : 142}
+              model={latestTurn?.response?.model ?? null}
+              usedEmbedding={latestTurn?.response?.usedEmbedding ?? null}
+              latencyMs={latestTurn?.loading ? null : 142}
             />
           </aside>
         </div>
@@ -222,84 +238,102 @@ function RagSearchPage() {
 
 // ---------- 对话单轮 ----------
 
-type AssistantPanels = ReturnType<typeof useAssistantPanels>;
-
 function ConversationTurn({
-  query,
-  loading,
-  error,
-  hasResult,
-  panels,
-  referenceChips,
+  turn,
 }: {
-  query: string;
-  isLast: boolean;
-  loading: boolean;
-  error: unknown;
-  hasResult: boolean;
-  panels: AssistantPanels | null;
-  referenceChips: RagSearchResult[];
+  turn: {
+    id: string;
+    question: string;
+    response: RagQueryResponse | null;
+    error: ApiError | Error | null;
+    loading: boolean;
+  };
 }) {
   const { t } = useI18n();
+  const llmNotConfigured =
+    turn.error instanceof ApiError && turn.error.code === "LLM_NOT_CONFIGURED";
 
   return (
     <>
-      <div className="flex items-start gap-3">
-        <AgentAvatar />
-        <div className="flex-1 text-sm leading-relaxed text-foreground">{query}</div>
-      </div>
-
+      {/* 用户气泡 */}
       <div className="flex items-start gap-3">
         <UserAvatar />
+        <div className="flex-1 text-sm leading-relaxed text-foreground">{turn.question}</div>
+      </div>
+
+      {/* 助手气泡 */}
+      <div className="flex items-start gap-3">
+        <AgentAvatar />
         <div className="flex-1 space-y-3">
-          {loading ? (
+          {turn.loading ? (
             <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
               {t("search.loadingReply")}
             </div>
-          ) : error ? (
+          ) : llmNotConfigured ? (
+            <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm">
+              <div className="font-medium text-primary">{t("search.llmNotConfigured.title")}</div>
+              <div className="mt-1 text-muted-foreground">{t("search.llmNotConfigured.hint")}</div>
+            </div>
+          ) : turn.error ? (
             <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {t("search.replyError", { message: getErrorMessage(error) })}
+              {t("search.replyError", { message: getErrorMessage(turn.error) })}
             </div>
-          ) : hasResult && panels ? (
-            <>
-              <div className="rounded-xl border border-border bg-card px-4 py-4 text-sm leading-relaxed">
-                {panels.summary}
-              </div>
-              {panels.panels.length > 0 ? (
-                <div className="grid gap-3 md:grid-cols-2">
-                  {panels.panels.map((p) => (
-                    <div
-                      key={p.label}
-                      className="rounded-xl border border-border bg-card px-4 py-3"
-                    >
-                      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
-                        {p.label}
-                      </div>
-                      <div className="mt-1 text-sm italic leading-relaxed text-foreground">
-                        "{p.quote}"
-                      </div>
-                      <div className="mt-2 text-[11px] text-muted-foreground">{p.source}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {referenceChips.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {referenceChips.map((r) => (
-                    <ReferenceChip key={r.id} result={r} />
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <div className="rounded-xl border border-dashed border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">
-              {t("search.empty.hint")}
-            </div>
-          )}
+          ) : turn.response ? (
+            <AssistantAnswer response={turn.response} />
+          ) : null}
         </div>
       </div>
     </>
+  );
+}
+
+function AssistantAnswer({ response }: { response: RagQueryResponse }) {
+  const { t } = useI18n();
+  return (
+    <>
+      <div className="whitespace-pre-wrap rounded-xl border border-border bg-card px-4 py-4 text-sm leading-relaxed">
+        {response.answer}
+      </div>
+      {response.references.length > 0 ? (
+        <>
+          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {t("search.referencesHeading")}
+          </div>
+          <div className="grid gap-3 md:grid-cols-2">
+            {response.references.map((ref, idx) => (
+              <ReferenceCard key={ref.id} index={idx + 1} ref={ref} />
+            ))}
+          </div>
+        </>
+      ) : null}
+    </>
+  );
+}
+
+function ReferenceCard({ index, ref }: { index: number; ref: RagQueryReference }) {
+  const authors = ref.authors.slice(0, 2).join(", ");
+  const rest = ref.authors.length > 2 ? ` +${ref.authors.length - 2}` : "";
+  return (
+    <div className="rounded-xl border border-border bg-card px-4 py-3">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
+          [{index}]
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
+          {(ref.score * 100).toFixed(0)}%
+        </span>
+      </div>
+      <div className="mt-1 text-sm font-medium leading-snug">{ref.title}</div>
+      <div className="mt-1 text-[11px] text-muted-foreground">
+        {authors || "—"}
+        {rest}
+        {ref.venue ? ` · ${ref.venue}` : ""}
+      </div>
+      <div className="mt-2 line-clamp-4 text-[12px] leading-relaxed text-muted-foreground">
+        {ref.snippet}
+      </div>
+    </div>
   );
 }
 
@@ -343,78 +377,17 @@ function UserAvatar() {
   );
 }
 
-// ---------- 助手面板生成 ----------
-
-/**
- * 把 FTS5 命中首条抬升成"正文 + 两个高亮 quote"，用于渲染助手气泡。
- * excerpt 里的 <mark>…</mark> 来自后端，我们在这里 sanitize 掉其他 tag，再拆句子做 quote。
- */
-function useAssistantPanels(top: RagSearchResult | undefined) {
-  return useMemo(() => {
-    if (!top) {
-      return { summary: "", panels: [] as Array<{ label: string; quote: string; source: string }> };
-    }
-    const plain = stripMarks(top.excerpt);
-    const sentences = splitSentences(plain);
-    const summaryBody = sentences[0] ?? plain;
-    const summary = summaryBody.trim();
-
-    // 抽两条"高亮卡"，尽量选不同的句子
-    const quoteA = sentences[1] ?? sentences[0] ?? plain;
-    const quoteB = sentences[2] ?? sentences[1] ?? quoteA;
-    const firstAuthor = top.authors[0] ?? "Anonymous";
-    const venue = top.venue ?? "—";
-    const panels = [
-      {
-        label: "EVIDENCE A",
-        quote: quoteA.trim(),
-        source: `Source: ${firstAuthor} · ${venue}`,
-      },
-      {
-        label: "EVIDENCE B",
-        quote: quoteB.trim(),
-        source: `Source: ${firstAuthor} · ${venue}`,
-      },
-    ];
-
-    return { summary, panels };
-  }, [top]);
-}
-
-function stripMarks(html: string): string {
-  return html.replace(/<\/?mark>/g, "");
-}
-
-function splitSentences(text: string): string[] {
-  return text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?。！？])\s+/)
-    .filter((s) => s.trim().length > 0);
-}
-
-function ReferenceChip({ result }: { result: RagSearchResult }) {
-  return (
-    <span
-      title={result.title}
-      className="inline-flex max-w-[240px] items-center gap-2 truncate rounded-full border border-border bg-secondary/60 px-3 py-1 text-[11px] font-mono text-muted-foreground"
-    >
-      <Paperclip className="h-3 w-3 shrink-0" aria-hidden />
-      <span className="truncate">{result.title}</span>
-    </span>
-  );
-}
-
 // ---------- 右侧面板 ----------
 
 function CurrentSourceCard({
-  result,
+  reference,
   loading,
 }: {
-  result: RagSearchResult | undefined;
+  reference: RagQueryReference | undefined;
   loading: boolean;
 }) {
   const { t } = useI18n();
-  if (!result && !loading) {
+  if (!reference && !loading) {
     return (
       <div className="rounded-2xl border border-dashed border-border bg-card/40 p-5 text-center text-sm text-muted-foreground">
         {t("search.panels.noSource")}
@@ -432,7 +405,7 @@ function CurrentSourceCard({
         <span className="inline-block rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {t("search.panels.currentSource")}
         </span>
-        <h3 className="text-base font-semibold leading-snug">{loading ? "—" : result?.title}</h3>
+        <h3 className="text-base font-semibold leading-snug">{loading ? "—" : reference?.title}</h3>
         <div className="flex flex-wrap gap-2">
           {loading ? (
             <span className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
@@ -440,26 +413,25 @@ function CurrentSourceCard({
             </span>
           ) : (
             <>
-              {result?.venue ? <Tag>{result.venue}</Tag> : null}
-              {result?.authors.slice(0, 2).map((a) => (
+              {reference?.venue ? <Tag>{reference.venue}</Tag> : null}
+              {reference?.authors.slice(0, 2).map((a) => (
                 <Tag key={a}>{a}</Tag>
               ))}
-              <Tag>{t("search.panels.pages", { n: 25 })}</Tag>
             </>
           )}
         </div>
-        {result ? (
+        {reference ? (
           <div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">{t("search.panels.relevance")}</span>
               <span className="font-mono tabular-nums text-[oklch(0.74_0.18_155)]">
-                {(result.score * 100).toFixed(1)}%
+                {(reference.score * 100).toFixed(1)}%
               </span>
             </div>
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
               <div
                 className="h-full rounded-full bg-[oklch(0.74_0.18_155)]"
-                style={{ width: `${Math.min(100, Math.round(result.score * 100))}%` }}
+                style={{ width: `${Math.min(100, Math.round(reference.score * 100))}%` }}
               />
             </div>
           </div>
@@ -470,34 +442,35 @@ function CurrentSourceCard({
 }
 
 function DataExtractionCard({
-  result,
+  reference,
   loading,
 }: {
-  result: RagSearchResult | undefined;
+  reference: RagQueryReference | undefined;
   loading: boolean;
 }) {
   const { t } = useI18n();
-  // Backend 现在没有真正的"结构化指标抽取"API，这里展示固定示意行，同时把 score/title 作为真实上下文。
-  // 之所以允许静态示例：界面要求如此；UI 上明确标记为"示例"，避免误读成真实抽取结果。
+  // 后端没有"结构化指标抽取" API，这里基于 reference 展示一批真实元数据
+  // （相关度、作者数、venue、摘要长度）。UI 上每格都是 reference 里的真实值，
+  // 不再是示例数据。
   const rows = useMemo(
     () =>
-      result
+      reference
         ? [
-            { metric: "Relevance", value: `${(result.score * 100).toFixed(1)}%`, unit: "%" },
-            { metric: "Authors", value: String(result.authors.length), unit: "—" },
             {
-              metric: "Venue",
-              value: result.venue ?? "—",
-              unit: "—",
+              metric: "Relevance",
+              value: `${(reference.score * 100).toFixed(1)}%`,
+              unit: "%",
             },
+            { metric: "Authors", value: String(reference.authors.length), unit: "—" },
+            { metric: "Venue", value: reference.venue ?? "—", unit: "—" },
             {
-              metric: "Excerpt",
-              value: `${stripMarks(result.excerpt).length}`,
+              metric: "Snippet",
+              value: `${reference.snippet.length}`,
               unit: "chars",
             },
           ]
         : [],
-    [result],
+    [reference],
   );
 
   return (
@@ -544,9 +517,13 @@ function DataExtractionCard({
 
 function ExecutionContextCard({
   papersIndexed,
+  model,
+  usedEmbedding,
   latencyMs,
 }: {
   papersIndexed: number | undefined;
+  model: string | null;
+  usedEmbedding: boolean | null;
   latencyMs: number | null;
 }) {
   const { t } = useI18n();
@@ -593,8 +570,17 @@ function ExecutionContextCard({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <MetaCell label={t("search.panels.embeddings")} value="Ada-002" />
-        <MetaCell label={t("search.panels.vectorDb")} value="Pinecone_H8" />
+        <MetaCell
+          label={t("search.panels.embeddings")}
+          value={
+            usedEmbedding === null
+              ? "—"
+              : usedEmbedding
+                ? t("search.usedEmbedding.yes")
+                : t("search.usedEmbedding.no")
+          }
+        />
+        <MetaCell label="Chat model" value={model ?? "—"} />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <button
@@ -638,5 +624,5 @@ function getErrorMessage(err: unknown): string {
   return String(err);
 }
 
-// intentional re-export to satisfy tree-shaking friendly unused var check
+// tree-shaking friendly unused-var guard
 void cn;

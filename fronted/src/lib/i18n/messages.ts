@@ -353,6 +353,12 @@ export const messages = {
     "search.panels.exportData": "Export Data",
     "search.panels.shareResult": "Share Result",
     "search.panels.noSource": "No active source yet",
+    "search.llmNotConfigured.title": "LLM not configured",
+    "search.llmNotConfigured.hint":
+      "Set LLM_API_KEY in backend/.env and restart the server to enable question answering. Keyword search still works.",
+    "search.usedEmbedding.yes": "Embedding rerank",
+    "search.usedEmbedding.no": "FTS ranking only",
+    "search.referencesHeading": "Cited papers",
 
     "settings.breadcrumbSettings": "Settings",
     "settings.breadcrumbCurrent": "Preferences & Connectivity",
@@ -737,6 +743,12 @@ export const messages = {
     "search.panels.exportData": "导出数据",
     "search.panels.shareResult": "分享结果",
     "search.panels.noSource": "尚无活跃来源",
+    "search.llmNotConfigured.title": "尚未配置 LLM",
+    "search.llmNotConfigured.hint":
+      "请在 backend/.env 填入 LLM_API_KEY 并重启后端以启用问答。关键词检索不受影响。",
+    "search.usedEmbedding.yes": "Embedding 重排",
+    "search.usedEmbedding.no": "仅 FTS 排序",
+    "search.referencesHeading": "引用论文",
 
     "settings.breadcrumbSettings": "设置",
     "settings.breadcrumbCurrent": "偏好与连接",

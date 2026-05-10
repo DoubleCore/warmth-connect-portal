@@ -1,14 +1,20 @@
+import type { Logger } from "pino";
 import type { RagPaperRow } from "@/db/schema.js";
+import { env } from "@/config/env.js";
 import { NotFoundError } from "@/shared/errors.js";
 import { buildPagination, type Paginated } from "@/shared/pagination.js";
+import { baseLogger } from "@/shared/logger.js";
 import type {
   CreateRagPaperInput,
   ListRagPapersQuery,
   RagPaperListItemDto,
+  RagQueryReferenceDto,
+  RagQueryResponseDto,
   RagScopeDto,
   RagSearchResponseDto,
   RagSearchResultDto,
 } from "./rag.dto.js";
+import { llmClient, LLMError } from "./llm.client.js";
 import * as repo from "./rag.repository.js";
 
 // ---------- FTS5 查询串净化 ----------
@@ -96,14 +102,57 @@ export async function getRagPaper(id: number): Promise<RagPaperListItemDto> {
   return toListItem(row);
 }
 
-export async function createRagPaper(input: CreateRagPaperInput): Promise<RagPaperListItemDto> {
+export async function createRagPaper(
+  input: CreateRagPaperInput,
+  logger: Logger = baseLogger,
+): Promise<RagPaperListItemDto> {
   const row = await repo.insertRagPaper({
     title: input.title,
     abstract: input.abstract,
     authorsJson: JSON.stringify(input.authors ?? []),
     venue: input.venue ?? null,
   });
+  // Best-effort 生成 embedding：LLM 未配置或调用失败都不阻断论文录入。
+  // 后续可以通过 POST /api/rag/papers/:id/reindex 手动回填。
+  await tryEmbedAndStore(row, logger);
   return toListItem(row);
+}
+
+/**
+ * 为单篇 rag paper 生成并落库 embedding。失败只打 warn，不抛。
+ * 录入 / reindex 都走这个。
+ */
+async function tryEmbedAndStore(row: RagPaperRow, logger: Logger): Promise<boolean> {
+  if (!llmClient.isConfigured()) {
+    logger.debug(
+      { paperId: row.id },
+      "Skipping embedding generation: LLM_API_KEY not configured",
+    );
+    return false;
+  }
+  const text = buildEmbeddingText(row.title, row.abstract);
+  try {
+    const vec = await llmClient.embedText(text, logger);
+    await repo.upsertRagPaperEmbedding({
+      paperId: row.id,
+      embeddingText: text,
+      embeddingJson: JSON.stringify(vec),
+      embeddingModel: env.LLM_EMBEDDING_MODEL,
+    });
+    logger.info({ paperId: row.id, dim: vec.length }, "Embedding upserted");
+    return true;
+  } catch (err) {
+    logger.warn(
+      { err, paperId: row.id },
+      "Failed to generate embedding; paper is still indexed for FTS search",
+    );
+    return false;
+  }
+}
+
+/** 拼 embedding 用的原文。对齐 Design_SQLite_Abstract_RAG.md §7.3。 */
+function buildEmbeddingText(title: string, abstract: string): string {
+  return `Title: ${title}\n\nAbstract:\n${abstract}`;
 }
 
 export async function deleteRagPaper(id: number): Promise<void> {
@@ -177,4 +226,281 @@ export async function searchPapers(q: string, limit: number): Promise<RagSearchR
   }
 
   return { items, query: q, total: items.length };
+}
+
+
+// ---------- RAG Query：FTS 召回 → Embedding rerank → LLM 生成 ----------
+
+/**
+ * FTS 预召回上限。
+ *   · 30 篇是 Design 文档 §10.1 推荐值
+ *   · 太多会浪费 embedding 调用（其实我们只读 DB，无所谓）+ 占用 prompt token
+ *   · 太少会漏掉语义相近但关键词不命中的论文
+ * 候选里选 topK（默认 5）喂给 LLM。
+ */
+const FTS_CANDIDATE_LIMIT = 30;
+
+/**
+ * 单篇参考论文喂给 LLM 的 abstract 截断长度。
+ * abstract 本身就不长（200-1500 字），400 词足够；超出部分截掉并加省略号，
+ * 控制整个 prompt 的 token 量。前端展示用的 snippet 也共用这个长度。
+ */
+const REFERENCE_SNIPPET_MAX_CHARS = 1200;
+
+/**
+ * 对外 API：POST /api/rag/query
+ *
+ * 流程（Design §9.1）：
+ *   1. 清洗 question → FTS5 MATCH 表达式
+ *   2. FTS 召回最多 FTS_CANDIDATE_LIMIT 篇
+ *   3. 如果 LLM 已配好 key：
+ *        a. 对 question embed
+ *        b. 把候选里有 embedding 的论文做 cosine similarity rerank
+ *        c. 取 Top K；embedding 缺失的条目 fallback 到 FTS 排序末尾
+ *      否则（LLM 未配好或 embedding 全无）：直接用 FTS 排序截 Top K
+ *   4. 拼 prompt，调 chatComplete
+ *   5. 返回 answer + references
+ *
+ * 失败处理：
+ *   · LLM 未配好 → LLMError('LLM_NOT_CONFIGURED', 503)，路由层直接吐 503
+ *   · FTS 没命中 → 走特殊路径：不调 LLM，直接返回"找不到相关论文"的答案，
+ *                  避免白白花一次 chat completion 的钱
+ */
+export async function askRagQuery(
+  question: string,
+  topK: number,
+  logger: Logger = baseLogger,
+): Promise<RagQueryResponseDto> {
+  if (!llmClient.isConfigured()) {
+    throw new LLMError(
+      "LLM_NOT_CONFIGURED",
+      "LLM_API_KEY 未配置，/api/rag/query 暂不可用。请在 backend/.env 中配置后重启服务。",
+      503,
+    );
+  }
+
+  // Step 1 + 2: FTS 召回候选
+  const matchExpr = sanitizeFtsQuery(question);
+  let ftsRows: repo.FtsSearchRow[] = [];
+  if (matchExpr) {
+    try {
+      ftsRows = repo.ftsSearch(matchExpr, FTS_CANDIDATE_LIMIT);
+    } catch (err) {
+      // FTS 语法层面兜不住的问题退化为"没命中"
+      logger.warn({ err, matchExpr }, "FTS match failed; falling back to empty candidates");
+      ftsRows = [];
+    }
+  }
+
+  if (ftsRows.length === 0) {
+    return emptyAnswerResponse(question);
+  }
+
+  const candidateIds = ftsRows.map((r) => r.id);
+  const candidateRows = await repo.getRagPapersByIdsPreservingOrder(candidateIds);
+  const rowById = new Map(candidateRows.map((r) => [r.id, r]));
+
+  // Step 3: embedding rerank（best effort）
+  let rerankedIds: number[] = candidateIds; // 默认用 FTS 顺序
+  let usedEmbedding = false;
+  try {
+    const qVec = await llmClient.embedText(question, logger);
+    const embeddings = await repo.getRagPaperEmbeddingsByIds(candidateIds);
+    if (embeddings.length > 0) {
+      rerankedIds = rerankByCosine(candidateIds, qVec, embeddings);
+      usedEmbedding = true;
+      logger.debug(
+        { totalCandidates: candidateIds.length, withEmbedding: embeddings.length },
+        "Reranked candidates by embedding similarity",
+      );
+    } else {
+      logger.warn(
+        { candidateCount: candidateIds.length },
+        "No embeddings found for any candidate; falling back to FTS ranking",
+      );
+    }
+  } catch (err) {
+    // embedding 失败不影响主流程：退回 FTS 排序，仍然能生成回答
+    logger.warn({ err }, "Embedding rerank failed; falling back to FTS ranking");
+  }
+
+  const topIds = rerankedIds.slice(0, topK);
+  const topRows = topIds
+    .map((id) => rowById.get(id))
+    .filter((r): r is RagPaperRow => Boolean(r));
+
+  if (topRows.length === 0) {
+    return emptyAnswerResponse(question);
+  }
+
+  // Step 4: 调 LLM
+  const answer = await generateAnswer(question, topRows, logger);
+
+  // Step 5: 打分 + 返回
+  const references = buildReferencesDto(topRows, rerankedIds, ftsRows);
+
+  return {
+    answer,
+    references,
+    question,
+    usedEmbedding,
+    model: env.LLM_CHAT_MODEL,
+  };
+}
+
+function emptyAnswerResponse(question: string): RagQueryResponseDto {
+  return {
+    answer:
+      "在当前论文索引里没有找到与你问题相关的论文。你可以换一种说法再问，或者先通过 POST /api/rag/papers 录入一些论文。",
+    references: [],
+    question,
+    usedEmbedding: false,
+    model: env.LLM_CHAT_MODEL,
+  };
+}
+
+/**
+ * 对候选 id 做余弦相似度重排。没有 embedding 的条目按 FTS 原顺序附在末尾。
+ */
+function rerankByCosine(
+  candidateIds: number[],
+  queryVec: number[],
+  embeddings: Array<{ paperId: number; embeddingJson: string }>,
+): number[] {
+  const vecById = new Map<number, number[]>();
+  for (const e of embeddings) {
+    try {
+      const vec = JSON.parse(e.embeddingJson) as unknown;
+      if (Array.isArray(vec) && vec.every((n) => typeof n === "number")) {
+        vecById.set(e.paperId, vec as number[]);
+      }
+    } catch {
+      // corrupt row, ignore
+    }
+  }
+
+  const scored: Array<{ id: number; score: number }> = [];
+  const unscored: number[] = [];
+  for (const id of candidateIds) {
+    const v = vecById.get(id);
+    if (v && v.length === queryVec.length) {
+      scored.push({ id, score: cosineSimilarity(queryVec, v) });
+    } else {
+      unscored.push(id);
+    }
+  }
+  scored.sort((a, b) => b.score - a.score);
+  return [...scored.map((s) => s.id), ...unscored];
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  const denom = Math.sqrt(na) * Math.sqrt(nb);
+  if (denom === 0) return 0;
+  return dot / denom;
+}
+
+/**
+ * 构造 LLM prompt 并调用。
+ * 对齐 Design_SQLite_Abstract_RAG.md §11。
+ */
+async function generateAnswer(
+  question: string,
+  refs: RagPaperRow[],
+  logger: Logger,
+): Promise<string> {
+  const systemPrompt =
+    "You are a research paper assistant. Answer the user's question ONLY based on the provided paper titles and abstracts. " +
+    "If the provided abstracts do not contain enough information to answer, say so explicitly instead of inventing facts. " +
+    "Cite paper numbers like [1], [2] inline. Keep answers concise (2-4 paragraphs). Answer in the same language as the user's question.";
+
+  const refBlocks = refs
+    .map((r, idx) => {
+      const abstractSnippet =
+        r.abstract.length > REFERENCE_SNIPPET_MAX_CHARS
+          ? r.abstract.slice(0, REFERENCE_SNIPPET_MAX_CHARS) + "..."
+          : r.abstract;
+      return `[${idx + 1}]\nTitle: ${r.title}\nAbstract: ${abstractSnippet}`;
+    })
+    .join("\n\n");
+
+  const userPrompt = `User question:\n${question}\n\nRelevant papers:\n\n${refBlocks}`;
+
+  logger.debug({ refs: refs.length, questionLen: question.length }, "Calling LLM for RAG answer");
+
+  return llmClient.chatComplete(
+    [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+    logger,
+    { temperature: 0.2 },
+  );
+}
+
+/**
+ * 把最终 Top K 行 + 原排名 + FTS 分数融合成前端用的 reference DTO。
+ * score 归一化策略：rerankedIds 的索引 → 越前分数越高，线性落到 [0.5, 1]。
+ * （bm25/余弦原始值数量级不稳定，UI 上直接展示会很糊）
+ */
+function buildReferencesDto(
+  topRows: RagPaperRow[],
+  rerankedIds: number[],
+  ftsRows: repo.FtsSearchRow[],
+): RagQueryReferenceDto[] {
+  const topCount = topRows.length;
+  const ftsById = new Map(ftsRows.map((r) => [r.id, r]));
+  void ftsById; // reserved for future use (showing fts excerpt)
+
+  return topRows.map((row, idx) => {
+    // idx 是 top-k 内部的位置（0 最相关）。映射到 [0.5, 1]：
+    //   idx=0 → 1.0，idx=topCount-1 → 0.5；单条时给 0.9 避免虚满分。
+    const score =
+      topCount === 1
+        ? 0.9
+        : Number((1 - (idx / (topCount - 1)) * 0.5).toFixed(4));
+
+    const snippet =
+      row.abstract.length > REFERENCE_SNIPPET_MAX_CHARS
+        ? row.abstract.slice(0, REFERENCE_SNIPPET_MAX_CHARS) + "..."
+        : row.abstract;
+
+    return {
+      id: row.id,
+      title: row.title,
+      authors: parseAuthors(row.authorsJson),
+      venue: row.venue,
+      snippet,
+      score,
+    };
+  });
+}
+
+// ---------- Reindex ----------
+
+/**
+ * POST /api/rag/papers/:id/reindex —— 给单篇论文重新生成 embedding。
+ * 用场景：早期录入的论文（LLM 当时没配好）需要回填；或者换了 embedding 模型。
+ */
+export async function reindexRagPaper(
+  id: number,
+  logger: Logger = baseLogger,
+): Promise<{ paperId: number; reindexed: boolean }> {
+  const row = await getRagPaperOrThrow(id);
+  if (!llmClient.isConfigured()) {
+    throw new LLMError(
+      "LLM_NOT_CONFIGURED",
+      "LLM_API_KEY 未配置，无法生成 embedding。",
+      503,
+    );
+  }
+  const ok = await tryEmbedAndStore(row, logger);
+  return { paperId: id, reindexed: ok };
 }

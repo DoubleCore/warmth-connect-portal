@@ -17,6 +17,23 @@ API_SERVER_KEY=<random-hex>
 
 ## 脚本
 
+### `check_db.sh`
+
+**不依赖 Hermes**：一键打印 SQLite 业务库的所有表行数、每张表最近几条数据、
+以及 Hermes 指令中心表的状态分布和最近活动。排查"数据没入库 / rag_papers
+与 FTS 不同步 / Agent 跑失败"时先跑这个。
+
+```bash
+# 默认读 backend/data/app.db
+bash scripts/check_db.sh
+
+# 检查其他 DB 文件
+DB=/tmp/other.db bash scripts/check_db.sh
+```
+
+如果顶部 row counts 发现 `rag_papers_fts` 行数 ≠ `rag_papers`，脚本会打印
+WARNING 并给出 rebuild 命令。
+
 ### `probe_hermes_run.sh`
 跑一次 "请自我介绍" 级别的非工具 run,抓取 SSE 事件流。用于验证 `message.delta` / `reasoning.available` / `run.completed` 三个基线事件。
 

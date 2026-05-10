@@ -7,6 +7,13 @@ export const searchQuerySchema = z.object({
 });
 export type SearchQueryInput = z.infer<typeof searchQuerySchema>;
 
+/** POST /api/rag/query —— 完整 RAG 问答（FTS 召回 + embedding rerank + LLM 回答） */
+export const ragQuerySchema = z.object({
+  question: z.string().trim().min(1).max(2000),
+  topK: z.coerce.number().int().min(1).max(10).default(5),
+});
+export type RagQueryInput = z.infer<typeof ragQuerySchema>;
+
 /** POST /api/rag/papers */
 export const createRagPaperSchema = z.object({
   title: z.string().trim().min(1).max(500),
@@ -53,4 +60,28 @@ export type RagPaperListItemDto = {
 export type RagScopeDto = {
   papersIndexed: number;
   totalAbstractChars: number;
+};
+
+/** POST /api/rag/query 返回的引用项。 */
+export type RagQueryReferenceDto = {
+  id: number;
+  title: string;
+  authors: string[];
+  venue: string | null;
+  /** 用于 UI 展示的摘要片段（abstract 前 400 字） */
+  snippet: string;
+  /** 综合排序分数（FTS + embedding 归一后），[0, 1]，越大越相关 */
+  score: number;
+};
+
+/** POST /api/rag/query 返回体。 */
+export type RagQueryResponseDto = {
+  answer: string;
+  references: RagQueryReferenceDto[];
+  /** 回显用户问题，前端渲染对话气泡时方便对齐 */
+  question: string;
+  /** true = 靠 embedding rerank 给出 Top K；false = embedding 不可用，只靠 FTS 排序 */
+  usedEmbedding: boolean;
+  /** 生成答案用的 chat model 名，前端侧栏可以展示 */
+  model: string;
 };

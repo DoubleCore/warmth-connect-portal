@@ -404,10 +404,10 @@ async function runCommand(input: RunCommandInput): Promise<void> {
       err instanceof HermesError
         ? { type: "error", code: err.code, message: err.message }
         : {
-          type: "error",
-          code: "INTERNAL_ERROR",
-          message: err instanceof Error ? err.message : "Unknown error",
-        };
+            type: "error",
+            code: "INTERNAL_ERROR",
+            message: err instanceof Error ? err.message : "Unknown error",
+          };
 
     try {
       // 兜底 flush，避免掉尾部文本
@@ -552,17 +552,13 @@ export async function listEvents(commandId: string): Promise<CommandStreamEvent[
  *
  * 为什么不每个 command 单独查一次事件：避免 N+1。
  */
-export async function getSessionHistory(
-  sessionId: string,
-): Promise<CommandSessionHistoryDto> {
+export async function getSessionHistory(sessionId: string): Promise<CommandSessionHistoryDto> {
   const session = await getSessionOrThrow(sessionId);
   const commandRows = await repo.listCommandsBySession(sessionId);
 
   const eventsByCommand = new Map<string, CommandStreamEvent[]>();
   if (commandRows.length > 0) {
-    const eventRows = await repo.listEventsByCommandIds(
-      commandRows.map((r) => r.id),
-    );
+    const eventRows = await repo.listEventsByCommandIds(commandRows.map((r) => r.id));
     for (const row of eventRows) {
       const ev = rowToStreamEvent(row);
       if (!ev) continue;
