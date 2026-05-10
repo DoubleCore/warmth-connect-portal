@@ -16,6 +16,7 @@ import {
   MessageSquare,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
+import { PdfUploadButton } from "@/components/hermes/PdfUploadButton";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api-client";
 import { getPaperDetail, getPaperPdfUrl } from "@/api/papers";
@@ -112,16 +113,19 @@ function PaperDetailPage() {
                 </span>
               )}
             </div>
-            <a
-              href={getPaperPdfUrl(paper.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.02]"
-              style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
-            >
-              <Download className="h-4 w-4" aria-hidden />
-              {t("paper.download")}
-            </a>
+            <div className="flex items-center gap-2">
+              <PdfUploadButton paperId={paper.id} />
+              <a
+                href={getPaperPdfUrl(paper.id)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-xl px-5 py-3 text-sm font-semibold text-primary-foreground transition-transform hover:scale-[1.02]"
+                style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
+              >
+                <Download className="h-4 w-4" aria-hidden />
+                {t("paper.download")}
+              </a>
+            </div>
           </div>
 
           <h1 className="mt-6 text-5xl font-semibold leading-[1.05] tracking-tight">

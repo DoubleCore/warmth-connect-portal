@@ -2,7 +2,7 @@ import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { db } from "@/db/client.js";
 import { paperAnalysis, papers, type PaperRow } from "@/db/schema.js";
 import { offset } from "@/shared/pagination.js";
-import type { CreatePaperInput, PaperListQuery, UpsertAnalysisInput } from "./papers.dto.js";
+import type { CreatePaperInput, PaperListQuery, UpdatePaperInput, UpsertAnalysisInput } from "./papers.dto.js";
 
 function buildFilters(query: PaperListQuery) {
   const clauses = [];
@@ -75,6 +75,43 @@ export async function insertPaper(input: CreatePaperInput): Promise<PaperRow> {
     .returning();
   if (!row) throw new Error("Failed to insert paper");
   return row;
+}
+
+export async function updatePaper(
+  id: string,
+  input: UpdatePaperInput,
+): Promise<PaperRow | null> {
+  // Only set the columns the caller provided so PATCH stays truly partial.
+  const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+  if (input.title !== undefined) patch.title = input.title;
+  if (input.authors !== undefined) patch.authorsJson = JSON.stringify(input.authors);
+  if (input.abstract !== undefined) patch.abstract = input.abstract ?? null;
+  if (input.field !== undefined) patch.field = input.field ?? null;
+  if (input.source !== undefined) patch.source = input.source ?? null;
+  if (input.publishedYear !== undefined) patch.publishedYear = input.publishedYear ?? null;
+  if (input.paperUrl !== undefined) patch.paperUrl = input.paperUrl ?? null;
+  if (input.pdfUrl !== undefined) patch.pdfUrl = input.pdfUrl ?? null;
+  if (input.pdfStoragePath !== undefined) patch.pdfStoragePath = input.pdfStoragePath ?? null;
+
+  const [row] = await db.update(papers).set(patch).where(eq(papers.id, id)).returning();
+  return row ?? null;
+}
+
+export async function updatePdfStoragePath(
+  id: string,
+  storagePath: string,
+): Promise<PaperRow | null> {
+  const [row] = await db
+    .update(papers)
+    .set({ pdfStoragePath: storagePath, updatedAt: new Date().toISOString() })
+    .where(eq(papers.id, id))
+    .returning();
+  return row ?? null;
+}
+
+export async function deletePaper(id: string): Promise<boolean> {
+  const result = await db.delete(papers).where(eq(papers.id, id)).returning({ id: papers.id });
+  return result.length > 0;
 }
 
 export async function upsertAnalysis(paperId: string, input: UpsertAnalysisInput) {

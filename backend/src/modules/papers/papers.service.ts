@@ -6,6 +6,7 @@ import type {
   PaperDetailDto,
   PaperListItemDto,
   PaperListQuery,
+  UpdatePaperInput,
   UpsertAnalysisInput,
 } from "./papers.dto.js";
 import * as repo from "./papers.repository.js";
@@ -71,6 +72,31 @@ export async function getPaperOrThrow(paperId: string): Promise<PaperRow> {
 export async function createPaper(input: CreatePaperInput): Promise<PaperListItemDto> {
   const row = await repo.insertPaper(input);
   return toListItem(row);
+}
+
+export async function updatePaper(
+  paperId: string,
+  input: UpdatePaperInput,
+): Promise<PaperListItemDto> {
+  await getPaperOrThrow(paperId);
+  const row = await repo.updatePaper(paperId, input);
+  if (!row) throw new NotFoundError("Paper", paperId);
+  return toListItem(row);
+}
+
+export async function setPdfStoragePath(
+  paperId: string,
+  storagePath: string,
+): Promise<PaperListItemDto> {
+  await getPaperOrThrow(paperId);
+  const row = await repo.updatePdfStoragePath(paperId, storagePath);
+  if (!row) throw new NotFoundError("Paper", paperId);
+  return toListItem(row);
+}
+
+export async function deletePaper(paperId: string): Promise<void> {
+  const ok = await repo.deletePaper(paperId);
+  if (!ok) throw new NotFoundError("Paper", paperId);
 }
 
 export async function upsertAnalysis(paperId: string, input: UpsertAnalysisInput) {

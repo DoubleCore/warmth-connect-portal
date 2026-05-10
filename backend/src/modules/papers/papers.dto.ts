@@ -23,6 +23,23 @@ export const createPaperSchema = z.object({
 });
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;
 
+/** PATCH /api/papers/:id — 更新论文元数据字段（部分更新） */
+export const updatePaperSchema = z
+  .object({
+    title: z.string().trim().min(1).optional(),
+    authors: z.array(z.string().trim().min(1)).optional(),
+    abstract: z.string().nullish(),
+    field: z.string().nullish(),
+    source: z.string().nullish(),
+    publishedYear: z.number().int().nullish(),
+    paperUrl: z.string().url().nullish(),
+    pdfUrl: z.string().url().nullish(),
+    /** 本地 PDF 相对路径（相对 PDF_STORAGE_DIR），一般由上传接口写入，但也接受直接 PATCH */
+    pdfStoragePath: z.string().nullish(),
+  })
+  .refine((v) => Object.keys(v).length > 0, { message: "At least one field is required" });
+export type UpdatePaperInput = z.infer<typeof updatePaperSchema>;
+
 /** PATCH /api/papers/:id/analysis */
 export const upsertAnalysisSchema = z.object({
   taskDefinition: z.string().nullish(),

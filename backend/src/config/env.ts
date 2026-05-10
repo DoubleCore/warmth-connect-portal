@@ -28,3 +28,6 @@ export const corsOrigins =
     : env.CORS_ORIGIN.split(",")
         .map((s) => s.trim())
         .filter(Boolean);
+
+/** Hard limit for uploaded PDF body size. Tunable via env if we ever need to. */
+export const PDF_MAX_BYTES = 50 * 1024 * 1024; // 50 MB

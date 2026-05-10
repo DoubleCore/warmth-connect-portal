@@ -172,3 +172,23 @@ export type DeviceRow = typeof devices.$inferSelect;
 export type NewDeviceRow = typeof devices.$inferInsert;
 export type ReproductionRecordRow = typeof paperReproductionRecords.$inferSelect;
 export type NewReproductionRecordRow = typeof paperReproductionRecords.$inferInsert;
+
+
+/**
+ * user_profile：单行用户 profile 表
+ *
+ * MVP 阶段只存一个用户名。id 锁成 1 以保证全表最多一行，避免多余的
+ * "find first by rowid" 逻辑。
+ */
+export const userProfile = sqliteTable("user_profile", {
+  id: integer("id")
+    .primaryKey()
+    .$defaultFn(() => 1),
+  username: text("username"),
+  updatedAt: text("updated_at")
+    .notNull()
+    .default(sql`(CURRENT_TIMESTAMP)`),
+});
+
+export type UserProfileRow = typeof userProfile.$inferSelect;
+export type NewUserProfileRow = typeof userProfile.$inferInsert;

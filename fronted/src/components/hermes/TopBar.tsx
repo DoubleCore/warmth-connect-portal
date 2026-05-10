@@ -1,8 +1,11 @@
 import { Bell, Settings } from "lucide-react";
 import { Link } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
+import { getProfile } from "@/api/profile";
+import { isNetworkError } from "@/lib/api-client";
 
 export type TopBarTab = "Command" | "Library" | "Workspace" | "None";
 
@@ -18,9 +21,27 @@ const tabs = [
 
 export function TopBar({ active = "Command" }: { active?: TopBarTab }) {
   const { t } = useI18n();
+
+  // Same queryKey as the Settings page so both views share one request.
+  const profileQuery = useQuery({
+    queryKey: ["profile"],
+    queryFn: getProfile,
+    // Don't retry transport failures — we'd rather show "Welcome" than spin.
+    retry: (count, err) => (isNetworkError(err) ? false : count < 2),
+    staleTime: 30_000,
+  });
+
+  const username = profileQuery.data?.username ?? null;
+  const greeting = username
+    ? t("topbar.greeting", { name: username })
+    : t("topbar.greetingAnonymous");
+
   return (
     <header className="flex items-center justify-between border-b border-border px-8 py-5">
-      <nav className="flex flex-1 items-center justify-center gap-8" aria-label={t("sidebar.primaryNavLabel")}>
+      <nav
+        className="flex flex-1 items-center justify-center gap-8"
+        aria-label={t("sidebar.primaryNavLabel")}
+      >
         {tabs.map((entry) => {
           const isActive = entry.tab === active;
           const cls = cn(
@@ -46,6 +67,12 @@ export function TopBar({ active = "Command" }: { active?: TopBarTab }) {
         })}
       </nav>
       <div className="flex items-center gap-4">
+        <span
+          className="hidden text-xs text-muted-foreground md:inline"
+          aria-live="polite"
+        >
+          {greeting}
+        </span>
         <button
           type="button"
           aria-label={t("topbar.notifications")}
