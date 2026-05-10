@@ -1,4 +1,6 @@
 import { useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   Bot,
@@ -177,7 +179,9 @@ function UserBubble({ message }: { message: string }) {
       <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
         <User className="h-4 w-4" aria-hidden />
       </span>
-      <div className="min-w-0 flex-1 rounded-xl bg-primary/10 px-3 py-2 text-sm">{message}</div>
+      <div className="min-w-0 flex-1 rounded-xl bg-primary/10 px-3 py-2 text-sm whitespace-pre-wrap break-words">
+        {message}
+      </div>
     </div>
   );
 }
@@ -276,7 +280,7 @@ function AgentRow({
         <Icon className={cn("h-4 w-4", spin && "animate-spin")} aria-hidden />
       </span>
       <div className={cn("min-w-0 flex-1 rounded-xl bg-background px-3 py-2 text-sm", textTone)}>
-        {text}
+        <Markdown>{text}</Markdown>
       </div>
     </div>
   );
@@ -294,6 +298,11 @@ function FinalRow({ event }: { event: Extract<CommandStreamEvent, { type: "final
     event.message ??
     (isCancelled ? t("command.event.finalCancelled") : t("command.event.finalDefault"));
 
+  // Backend 约定：result = { output, usage }，当 output 就是 message 字符串时
+  // 我们已经在 headline 里 markdown 渲染过一遍，避免再把同样的文本 dump 成 JSON。
+  // 此时只把剩余的元数据（通常是 usage）保留下来展示。
+  const leftover = extractLeftover(result, event.message);
+
   const Icon = isCancelled ? CircleDashed : CheckCircle2;
   const iconTone = isCancelled
     ? "bg-secondary text-muted-foreground"
@@ -310,11 +319,37 @@ function FinalRow({ event }: { event: Extract<CommandStreamEvent, { type: "final
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm">
-        <div className="font-medium">{headline}</div>
-        {result ? <ResultPreview value={result} /> : null}
+        <Markdown>{headline}</Markdown>
+        {leftover !== undefined ? <ResultPreview value={leftover} /> : null}
       </div>
     </div>
   );
+}
+
+/**
+ * 决定 final 事件里哪些结果字段需要额外展示：
+ * - result 为空：不展示
+ * - result 是字符串且和 headline 一致：不展示（已经 markdown 渲染）
+ * - result 是 { output, usage, ... }：扣掉和 headline 相同的 output 以及仅对开发者有意义的 usage；
+ *   剩余字段为空则整体不展示
+ * - 其他：原样返回
+ */
+function extractLeftover(result: unknown, headline: string | undefined): unknown {
+  if (result === null || result === undefined) return undefined;
+  if (typeof result === "string") {
+    return result === headline ? undefined : result;
+  }
+  if (typeof result === "object") {
+    const r = result as Record<string, unknown>;
+    // usage（token 计数）只是给开发者看的，用户侧不展示
+    const { usage: _usage, ...rest } = r;
+    if (typeof rest.output === "string" && rest.output === headline) {
+      delete (rest as Record<string, unknown>).output;
+    }
+    const remaining = Object.entries(rest).filter(([, v]) => v !== null && v !== undefined);
+    return remaining.length > 0 ? Object.fromEntries(remaining) : undefined;
+  }
+  return result;
 }
 
 function ResultPreview({ value }: { value: unknown }) {
@@ -336,6 +371,89 @@ function safeStringify(v: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+// ---------- Markdown ----------
+
+/**
+ * Agent/final 消息使用 GFM Markdown 渲染，保留标题、粗体、表格、代码等排版。
+ * 用 Tailwind 小型化样式覆盖 react-markdown 的默认输出，避免引入 @tailwindcss/typography。
+ */
+function Markdown({ children }: { children: string }) {
+  return (
+    <div className="command-md space-y-2 text-sm leading-relaxed break-words">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: (props) => <h3 className="mt-1 text-base font-semibold" {...props} />,
+          h2: (props) => <h4 className="mt-1 text-sm font-semibold" {...props} />,
+          h3: (props) => <h5 className="mt-1 text-sm font-semibold" {...props} />,
+          h4: (props) => <h6 className="mt-1 text-sm font-semibold" {...props} />,
+          p: (props) => <p className="leading-relaxed" {...props} />,
+          ul: (props) => <ul className="list-disc space-y-1 pl-5" {...props} />,
+          ol: (props) => <ol className="list-decimal space-y-1 pl-5" {...props} />,
+          li: (props) => <li className="leading-relaxed" {...props} />,
+          strong: (props) => <strong className="font-semibold" {...props} />,
+          em: (props) => <em className="italic" {...props} />,
+          hr: () => <hr className="my-2 border-border" />,
+          a: ({ href, ...rest }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary underline-offset-2 hover:underline"
+              {...rest}
+            />
+          ),
+          blockquote: (props) => (
+            <blockquote
+              className="border-l-2 border-border pl-3 text-muted-foreground"
+              {...props}
+            />
+          ),
+          code: ({ className, children, ...rest }) => {
+            const isBlock = /language-/.test(className ?? "");
+            if (isBlock) {
+              return (
+                <code className={cn("block font-mono text-xs", className)} {...rest}>
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code
+                className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[0.85em]"
+                {...rest}
+              >
+                {children}
+              </code>
+            );
+          },
+          pre: (props) => (
+            <pre
+              className="max-h-56 overflow-auto rounded-lg bg-secondary/60 p-2 text-xs leading-relaxed"
+              {...props}
+            />
+          ),
+          table: (props) => (
+            <div className="overflow-x-auto">
+              <table
+                className="my-1 w-full border-collapse text-left text-xs"
+                {...props}
+              />
+            </div>
+          ),
+          thead: (props) => <thead className="bg-secondary/60" {...props} />,
+          th: (props) => (
+            <th className="border border-border px-2 py-1 font-semibold" {...props} />
+          ),
+          td: (props) => <td className="border border-border px-2 py-1 align-top" {...props} />,
+        }}
+      >
+        {children}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 // ---------- Confirmation card ----------
