@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Sparkles,
@@ -18,6 +18,8 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { ApiError, isNetworkError } from "@/lib/api-client";
 import { listPapers } from "@/api/papers";
 import { listReproductionRecords } from "@/api/reproduction";
+import { useCommandStream } from "@/hooks/use-command-stream";
+import { CommandConversation } from "@/components/hermes/CommandConversation";
 import type { PaperListItem } from "@/types/paper";
 import type { ReproductionRecord, ReproductionStatus } from "@/types/reproduction";
 
@@ -53,15 +55,33 @@ const statusAccent: Record<ReproductionStatus, string> = {
 
 export function CommandPrompt() {
   const [value, setValue] = useState("");
-  const navigate = useNavigate();
   const { t } = useI18n();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Hermes 指令中心主入口：主页的输入框直接对接 Backend Command Center
+  // （Hermes_Command_Center_HTTP_直连可用版.md §5）。
+  // 会话在首次 run 时懒创建，entry="home" 写入 command_sessions.entry 便于埋点。
+  const command = useCommandStream({
+    entry: "home",
+    baseContext: { currentPage: "home" },
+  });
+
+  const isBusy =
+    command.phase === "connecting" ||
+    command.phase === "streaming" ||
+    command.phase === "awaiting_confirmation";
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = value.trim();
-    if (!trimmed) return;
-    navigate({ to: "/search", search: { q: trimmed } });
+    if (!trimmed || isBusy) return;
+    // 清空输入框，保留上一次值可能会让用户误以为指令没发出去
+    setValue("");
+    await command.run(trimmed);
   };
+
+  // idle 时展示 Quick Actions + Recent；非 idle 切换为对话式布局，
+  // 避免与进行中的指令过程抢注意力。
+  const showIdleSurface = command.phase === "idle";
 
   return (
     <div className="mx-auto w-full max-w-4xl px-8 py-14">
@@ -85,37 +105,56 @@ export function CommandPrompt() {
             id="command-prompt"
             value={value}
             onChange={(e) => setValue(e.target.value)}
-            placeholder={t("home.inputPlaceholder")}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            placeholder={isBusy ? t("command.inputPlaceholderBusy") : t("home.inputPlaceholder")}
+            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
             autoComplete="off"
+            disabled={isBusy}
           />
           <button
             type="submit"
             aria-label={t("home.submit")}
             className="rounded-lg bg-secondary p-2 text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
-            disabled={!value.trim()}
+            disabled={!value.trim() || isBusy}
           >
-            <CornerDownLeft className="h-4 w-4" aria-hidden />
+            {isBusy ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <CornerDownLeft className="h-4 w-4" aria-hidden />
+            )}
           </button>
         </div>
       </form>
 
-      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
-        {quickActions.map(({ labelKey, icon: Icon, to }) => (
-          <Link
-            key={labelKey}
-            to={to}
-            className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-4 py-6 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-glow)]"
-          >
-            <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
-              <Icon className="h-5 w-5" aria-hidden />
-            </span>
-            <span className="text-sm font-medium">{t(labelKey)}</span>
-          </Link>
-        ))}
-      </div>
+      {showIdleSurface ? (
+        <>
+          <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+            {quickActions.map(({ labelKey, icon: Icon, to }) => (
+              <Link
+                key={labelKey}
+                to={to}
+                className="group flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-4 py-6 transition-all hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-[var(--shadow-glow)]"
+              >
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-secondary text-muted-foreground transition-colors group-hover:bg-primary/15 group-hover:text-primary">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="text-sm font-medium">{t(labelKey)}</span>
+              </Link>
+            ))}
+          </div>
 
-      <RecentActivity />
+          <RecentActivity />
+        </>
+      ) : (
+        <CommandConversation
+          phase={command.phase}
+          transcript={command.transcript}
+          pendingConfirmation={command.pendingConfirmation}
+          error={command.error}
+          onConfirm={() => void command.respondConfirmation("confirm")}
+          onCancel={() => void command.respondConfirmation("cancel")}
+          onReset={command.reset}
+        />
+      )}
     </div>
   );
 }
@@ -204,8 +243,7 @@ function PaperCard({ paper }: { paper: PaperListItem }) {
         <div className="truncate font-medium">{paper.title}</div>
         <div className="truncate text-xs text-muted-foreground">
           {t("home.recent.paperMeta", {
-            authors:
-              firstAuthor + (paper.authors.length > 1 ? t("library.etAl") : ""),
+            authors: firstAuthor + (paper.authors.length > 1 ? t("library.etAl") : ""),
             year: yearPart,
           })}
         </div>

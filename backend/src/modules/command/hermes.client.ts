@@ -22,6 +22,31 @@ export type HermesMessageInput = {
 };
 
 /**
+ * Hermes /agent/message/resume 输入（Phase 3）。
+ * 当 Backend 收到前端对 need_confirmation 的回复后，
+ * 以同一个 commandId 调用 resume 继续 Agent 执行。
+ * Hermes 侧仍然返回 SSE 流。
+ */
+export type HermesResumeInput = {
+  commandId: string;
+  sessionId: string;
+  confirmationId: string;
+  action: "confirm" | "cancel";
+  payload?: Record<string, unknown>;
+};
+
+/**
+ * Hermes /agent/message/cancel 输入（Phase 3，fire-and-forget）。
+ * 前端选 cancel 时 Backend 立刻落终态，这里只是"尽力通知"Hermes 释放资源，
+ * 失败不影响 Backend 已返回给前端的结果。
+ */
+export type HermesCancelInput = {
+  commandId: string;
+  sessionId: string;
+  reason?: string;
+};
+
+/**
  * Hermes /agent/message 非流式响应（设计文档 §7.2）
  *
  * 对 result 使用 unknown 是刻意的：前端对 result 结构是开放接收的，
@@ -109,6 +134,23 @@ export type HermesHttpClient = {
   ): AsyncIterable<HermesRawEvent>;
 
   /**
+   * 续跑一个因 need_confirmation 暂停的 command（Phase 3）。
+   * Hermes 收到 resume 后重新以 SSE 推送剩余事件（包括可能的 final / error）。
+   * 连接 / 读取错误同样抛 HermesError。
+   */
+  streamResume(
+    input: HermesResumeInput,
+    logger?: Logger,
+  ): AsyncIterable<HermesRawEvent>;
+
+  /**
+   * 尽力通知 Hermes 取消某个 command（Phase 3）。
+   * 用于前端 cancel 确认卡片时释放 Hermes 资源。
+   * 任何失败都不抛，仅返回 false + 日志；因为 Backend 已经对前端返回了 cancelled 终态。
+   */
+  notifyCancel(input: HermesCancelInput, logger?: Logger): Promise<boolean>;
+
+  /**
    * 健康检查。方便 /api/command/_debug/hermes-ping 或部署联调用。
    * 返回 true 表示 Hermes 通。任何失败都不抛，直接 false + 日志记录原因。
    */
@@ -193,6 +235,112 @@ export function createHermesHttpClient(): HermesHttpClient {
     }
   }
 
+  /**
+   * 通用 SSE 流打开 + 解析。Phase 2 的 streamMessage 和 Phase 3 的 streamResume
+   * 都走这里，差别只是 URL 和请求体。
+   *
+   * 超时只管"连接阶段"——握手建立后会解绑 AbortController，防止长 Agent 流被误杀。
+   */
+  function openSseStream(
+    path: string,
+    body: unknown,
+    logger?: Logger,
+  ): AsyncIterable<HermesRawEvent> {
+    return (async function* () {
+      const url = joinUrl(baseUrl, path);
+      const connectController = new AbortController();
+      const connectTimer = setTimeout(() => connectController.abort(), timeoutMs);
+
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "text/event-stream",
+            ...buildAuthHeader(),
+          },
+          body: JSON.stringify(body),
+          signal: connectController.signal,
+        });
+      } catch (err) {
+        clearTimeout(connectTimer);
+        const isAbort =
+          (err as { name?: string } | null)?.name === "AbortError" ||
+          connectController.signal.aborted;
+        if (isAbort) {
+          logger?.warn({ url, timeoutMs }, "Hermes SSE connect timed out");
+          throw new HermesError(
+            "HERMES_TIMEOUT",
+            "Hermes 流式接口连接超时。",
+            504,
+            { url, timeoutMs },
+          );
+        }
+        logger?.error({ err, url }, "Hermes SSE connect failed");
+        throw new HermesError(
+          "HERMES_CONNECTION_FAILED",
+          "后端无法连接 Hermes 服务,请确认 Hermes 是否已启动。",
+          502,
+          { url, cause: (err as Error)?.message },
+        );
+      }
+      clearTimeout(connectTimer);
+
+      if (!response.ok || !response.body) {
+        const text = await response.text().catch(() => "");
+        logger?.warn(
+          { url, status: response.status, body: text.slice(0, 1000) },
+          "Hermes SSE returned non-2xx",
+        );
+        throw new HermesError(
+          "HERMES_AGENT_ERROR",
+          `Hermes Agent 流式接口失败。HTTP ${response.status}`,
+          502,
+          { status: response.status, body: text.slice(0, 2000) },
+        );
+      }
+
+      const reader = response.body
+        .pipeThrough(new TextDecoderStream())
+        .getReader();
+
+      let buffer = "";
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += value;
+          const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+          const parts = normalized.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const frame of parts) {
+            const parsed = parseSseFrame(frame);
+            if (parsed) yield parsed;
+          }
+        }
+        if (buffer.trim().length > 0) {
+          const parsed = parseSseFrame(buffer);
+          if (parsed) yield parsed;
+        }
+      } catch (err) {
+        logger?.error({ err, url }, "Hermes SSE read error");
+        throw new HermesError(
+          "HERMES_AGENT_ERROR",
+          "Hermes 流式响应读取失败。",
+          502,
+          { cause: (err as Error)?.message },
+        );
+      } finally {
+        try {
+          await reader.cancel();
+        } catch {
+          // reader 可能已经自动释放，忽略
+        }
+      }
+    })();
+  }
+
   return {
     async sendMessage(input, logger) {
       const result = await postJson<HermesMessageResult>(
@@ -216,110 +364,41 @@ export function createHermesHttpClient(): HermesHttpClient {
     },
 
     streamMessage(input, logger) {
-      // 用一个独立 async generator 封装整个生命周期。
-      // 注意：fetch 的 AbortController 只用于"连接阶段"的超时。
-      // 一旦 TTFB 之后就取消它，避免把长流杀掉。
-      return (async function* () {
-        const url = joinUrl(baseUrl, "/agent/message/stream");
-        const connectController = new AbortController();
-        const connectTimer = setTimeout(
-          () => connectController.abort(),
-          timeoutMs,
-        );
+      return openSseStream("/agent/message/stream", input, logger);
+    },
 
-        let response: Response;
-        try {
-          response = await fetch(url, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "text/event-stream",
-              ...buildAuthHeader(),
-            },
-            body: JSON.stringify(input),
-            signal: connectController.signal,
-          });
-        } catch (err) {
-          clearTimeout(connectTimer);
-          const isAbort =
-            (err as { name?: string } | null)?.name === "AbortError" ||
-            connectController.signal.aborted;
-          if (isAbort) {
-            logger?.warn({ url, timeoutMs }, "Hermes SSE connect timed out");
-            throw new HermesError(
-              "HERMES_TIMEOUT",
-              "Hermes 流式接口连接超时。",
-              504,
-              { url, timeoutMs },
-            );
-          }
-          logger?.error({ err, url }, "Hermes SSE connect failed");
-          throw new HermesError(
-            "HERMES_CONNECTION_FAILED",
-            "后端无法连接 Hermes 服务，请确认 Hermes 是否已启动。",
-            502,
-            { url, cause: (err as Error)?.message },
-          );
-        }
-        // 连上了就解绑连接超时，下面整个流的生命周期不再有硬超时
-        clearTimeout(connectTimer);
+    streamResume(input, logger) {
+      return openSseStream("/agent/message/resume", input, logger);
+    },
 
-        if (!response.ok || !response.body) {
-          const text = await response.text().catch(() => "");
+    async notifyCancel(input, logger) {
+      const url = joinUrl(baseUrl, "/agent/message/cancel");
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 3_000);
+      try {
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...buildAuthHeader(),
+          },
+          body: JSON.stringify(input),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+        if (!res.ok) {
           logger?.warn(
-            { url, status: response.status, body: text.slice(0, 1000) },
-            "Hermes SSE returned non-2xx",
+            { url, status: res.status },
+            "Hermes cancel notification returned non-2xx",
           );
-          throw new HermesError(
-            "HERMES_AGENT_ERROR",
-            `Hermes Agent 流式接口失败。HTTP ${response.status}`,
-            502,
-            { status: response.status, body: text.slice(0, 2000) },
-          );
+          return false;
         }
-
-        const reader = response.body
-          .pipeThrough(new TextDecoderStream())
-          .getReader();
-
-        // SSE 帧解析缓冲。按 `\n\n` 切块，每块内再按行解析 event/id/data。
-        let buffer = "";
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += value;
-            // SSE 规范支持 \r\n\r\n 或 \n\n 作为帧分隔。简单归一化后只按 \n\n 切。
-            const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-            const parts = normalized.split("\n\n");
-            // 最后一段可能是半帧，留回 buffer 继续读
-            buffer = parts.pop() ?? "";
-            for (const frame of parts) {
-              const parsed = parseSseFrame(frame);
-              if (parsed) yield parsed;
-            }
-          }
-          // 流结束时，若 buffer 里还有一整段事件（某些 server 不以空行结尾），补一次
-          if (buffer.trim().length > 0) {
-            const parsed = parseSseFrame(buffer);
-            if (parsed) yield parsed;
-          }
-        } catch (err) {
-          logger?.error({ err, url }, "Hermes SSE read error");
-          throw new HermesError(
-            "HERMES_AGENT_ERROR",
-            "Hermes 流式响应读取失败。",
-            502,
-            { cause: (err as Error)?.message },
-          );
-        } finally {
-          try {
-            await reader.cancel();
-          } catch {
-            // reader 可能已经自动释放，忽略
-          }
-        }
-      })();
+        return true;
+      } catch (err) {
+        clearTimeout(timer);
+        logger?.warn({ err, url }, "Hermes cancel notification failed");
+        return false;
+      }
     },
 
     async ping(logger) {

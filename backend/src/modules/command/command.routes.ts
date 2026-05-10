@@ -4,6 +4,7 @@ import { created, ok } from "@/shared/response.js";
 import { zv } from "@/shared/validator.js";
 import { baseLogger } from "@/shared/logger.js";
 import {
+  confirmCommandActionSchema,
   createCommandSessionSchema,
   sendCommandMessageSchema,
 } from "./command.dto.js";
@@ -15,15 +16,13 @@ import { hermesClient } from "./hermes.client.js";
  * 挂在 /api/command 上。
  * 对应 Hermes_Command_Center_HTTP_直连可用版.md §5。
  *
- * Phase 2 路由（当前实现）：
+ * Phase 3 路由（当前实现）：
  *   POST /api/command/sessions                          创建会话
  *   POST /api/command/sessions/:sessionId/messages      发送指令（立即返回 streamUrl）
  *   GET  /api/command/commands/:commandId/stream        SSE 推送 Agent 过程 + 最终结果
  *   GET  /api/command/commands/:commandId/events        事件回放（调试 / 兜底轮询）
+ *   POST /api/command/confirmations/:confirmationId     确认卡片回执（confirm / cancel）
  *   GET  /api/command/_debug/hermes-ping                快速确认 Backend 能否连通 Hermes
- *
- * Phase 3 再新增：
- *   POST /api/command/confirmations/:confirmationId     确认卡片
  */
 export const commandRouter = createRouter();
 
@@ -188,3 +187,30 @@ commandRouter.get("/_debug/hermes-ping", async (c) => {
   const reachable = await hermesClient.ping(logger);
   return ok(c, { reachable });
 });
+
+// ---------- 确认卡片（Phase 3） ----------
+
+/**
+ * 对应设计文档 §10：
+ *   POST /api/command/confirmations/:confirmationId
+ *   body: { action: "confirm" | "cancel", payload?: {...} }
+ *
+ * 行为：
+ *   - 把决策递给挂起的 runCommand（若该 confirmationId 仍在等）
+ *   - 若已失效 / 已被处理 / 已过期 → 200 + accepted=false（保持幂等）
+ */
+commandRouter.post(
+  "/confirmations/:confirmationId",
+  zv("json", confirmCommandActionSchema),
+  async (c) => {
+    const confirmationId = c.req.param("confirmationId");
+    const body = c.req.valid("json");
+    const logger = c.get("logger") ?? baseLogger;
+    const result = await service.resolveConfirmation(
+      confirmationId,
+      body,
+      logger,
+    );
+    return ok(c, result);
+  },
+);

@@ -68,8 +68,7 @@ export type CommandMessageResponseDto = {
 
 /**
  * CommandStreamEvent：Backend -> Frontend 统一事件类型。
- * 与设计文档 §6 严格对齐。Phase 1 只会产生 final / error 两类，但类型提前定义好
- * 方便写 repo/mapper 时直接复用。
+ * 与设计文档 §6 严格对齐。
  */
 export type CommandStreamEvent =
   | {
@@ -107,3 +106,26 @@ export type CommandStreamEvent =
       message: string;
       code?: string;
     };
+
+// ---------- 确认（Phase 3） ----------
+
+/**
+ * 前端对确认卡片的响应。对应设计文档 §10：
+ *   { "action": "confirm" } 或 { "action": "cancel" }
+ *
+ * payload 是可选的扩展字段：前端可以带上表单补充的参数（例如"本次仅对该设备生效"），
+ * Backend 原样透传给 Hermes resume 接口。
+ */
+export const confirmCommandActionSchema = z.object({
+  action: z.enum(["confirm", "cancel"]),
+  payload: z.record(z.unknown()).optional(),
+});
+export type ConfirmCommandActionInput = z.infer<typeof confirmCommandActionSchema>;
+
+export type ConfirmationResponseDto = {
+  confirmationId: string;
+  commandId: string;
+  action: "confirm" | "cancel";
+  /** true 表示 Backend 成功把决策递给了挂起的 runCommand */
+  accepted: boolean;
+};
