@@ -16,7 +16,6 @@ import { Route as LibraryRouteImport } from './routes/library'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LibraryPaperIdRouteImport } from './routes/library.$paperId'
-import { Route as LibraryPaperIdRagRouteImport } from './routes/library.$paperId.rag'
 
 const WorkspaceRoute = WorkspaceRouteImport.update({
   id: '/workspace',
@@ -53,11 +52,6 @@ const LibraryPaperIdRoute = LibraryPaperIdRouteImport.update({
   path: '/$paperId',
   getParentRoute: () => LibraryRoute,
 } as any)
-const LibraryPaperIdRagRoute = LibraryPaperIdRagRouteImport.update({
-  id: '/rag',
-  path: '/rag',
-  getParentRoute: () => LibraryPaperIdRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -66,8 +60,7 @@ export interface FileRoutesByFullPath {
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
-  '/library/$paperId': typeof LibraryPaperIdRouteWithChildren
-  '/library/$paperId/rag': typeof LibraryPaperIdRagRoute
+  '/library/$paperId': typeof LibraryPaperIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -76,8 +69,7 @@ export interface FileRoutesByTo {
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
-  '/library/$paperId': typeof LibraryPaperIdRouteWithChildren
-  '/library/$paperId/rag': typeof LibraryPaperIdRagRoute
+  '/library/$paperId': typeof LibraryPaperIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -87,8 +79,7 @@ export interface FileRoutesById {
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
-  '/library/$paperId': typeof LibraryPaperIdRouteWithChildren
-  '/library/$paperId/rag': typeof LibraryPaperIdRagRoute
+  '/library/$paperId': typeof LibraryPaperIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -100,7 +91,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workspace'
     | '/library/$paperId'
-    | '/library/$paperId/rag'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -110,7 +100,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workspace'
     | '/library/$paperId'
-    | '/library/$paperId/rag'
   id:
     | '__root__'
     | '/'
@@ -120,7 +109,6 @@ export interface FileRouteTypes {
     | '/settings'
     | '/workspace'
     | '/library/$paperId'
-    | '/library/$paperId/rag'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -183,34 +171,15 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LibraryPaperIdRouteImport
       parentRoute: typeof LibraryRoute
     }
-    '/library/$paperId/rag': {
-      id: '/library/$paperId/rag'
-      path: '/rag'
-      fullPath: '/library/$paperId/rag'
-      preLoaderRoute: typeof LibraryPaperIdRagRouteImport
-      parentRoute: typeof LibraryPaperIdRoute
-    }
   }
 }
 
-interface LibraryPaperIdRouteChildren {
-  LibraryPaperIdRagRoute: typeof LibraryPaperIdRagRoute
-}
-
-const LibraryPaperIdRouteChildren: LibraryPaperIdRouteChildren = {
-  LibraryPaperIdRagRoute: LibraryPaperIdRagRoute,
-}
-
-const LibraryPaperIdRouteWithChildren = LibraryPaperIdRoute._addFileChildren(
-  LibraryPaperIdRouteChildren,
-)
-
 interface LibraryRouteChildren {
-  LibraryPaperIdRoute: typeof LibraryPaperIdRouteWithChildren
+  LibraryPaperIdRoute: typeof LibraryPaperIdRoute
 }
 
 const LibraryRouteChildren: LibraryRouteChildren = {
-  LibraryPaperIdRoute: LibraryPaperIdRouteWithChildren,
+  LibraryPaperIdRoute: LibraryPaperIdRoute,
 }
 
 const LibraryRouteWithChildren =

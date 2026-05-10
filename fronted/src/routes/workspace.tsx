@@ -12,6 +12,11 @@ import {
   PowerOff,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
+import { DeviceDeleteButton } from "@/components/hermes/DeviceDeleteButton";
+import { DeviceFormDialog } from "@/components/hermes/DeviceFormDialog";
+import { DeviceStatusPicker } from "@/components/hermes/DeviceStatusPicker";
+import { ReproductionDeleteButton } from "@/components/hermes/ReproductionDeleteButton";
+import { ReproductionFormDialog } from "@/components/hermes/ReproductionFormDialog";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { listDevices } from "@/api/devices";
@@ -65,7 +70,11 @@ function WorkspacePage() {
         </header>
 
         <section className="mt-10">
-          <h2 className="text-lg font-semibold">{t("workspace.devicesHeading")}</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">{t("workspace.devicesHeading")}</h2>
+            <DeviceFormDialog />
+          </div>
+
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
             <StatCard label={t("workspace.stat.totalDevices")} value={devices.length} icon={HardDrive} accent="text-muted-foreground" />
             <StatCard label={t("workspace.stat.idle")} value={stats.idle} icon={CheckCircle2} accent="text-[oklch(0.74_0.18_155)]" />
@@ -75,12 +84,13 @@ function WorkspacePage() {
           </div>
 
           <div className="mt-5 overflow-hidden rounded-2xl border border-border">
-            <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr] gap-4 border-b border-border bg-card/60 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_80px] gap-4 border-b border-border bg-card/60 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <div>{t("workspace.device.name")}</div>
               <div>{t("workspace.device.type")}</div>
               <div>{t("workspace.device.status")}</div>
               <div>{t("workspace.device.location")}</div>
               <div>{t("workspace.device.description")}</div>
+              <div className="text-right">{t("workspace.device.actions")}</div>
             </div>
             {devicesQuery.isLoading ? (
               <BlockMessage loading text={t("workspace.loading")} />
@@ -95,15 +105,19 @@ function WorkspacePage() {
         </section>
 
         <section className="mt-10">
-          <h2 className="text-lg font-semibold">{t("workspace.recordsHeading")}</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">{t("workspace.recordsHeading")}</h2>
+            <ReproductionFormDialog mode="create" />
+          </div>
           <div className="mt-4 overflow-hidden rounded-2xl border border-border">
-            <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr] gap-4 border-b border-border bg-card/60 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
+            <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr_96px] gap-4 border-b border-border bg-card/60 px-6 py-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <div>{t("workspace.record.paper")}</div>
               <div>{t("workspace.record.device")}</div>
               <div>{t("workspace.record.status")}</div>
               <div>{t("workspace.record.progress")}</div>
               <div>{t("workspace.record.startedAt")}</div>
               <div>{t("workspace.record.finishedAt")}</div>
+              <div className="text-right">{t("workspace.record.actions")}</div>
             </div>
             {recordsQuery.isLoading ? (
               <BlockMessage loading text={t("workspace.loading")} />
@@ -143,47 +157,22 @@ function StatCard({
   );
 }
 
-const deviceStatusStyles: Record<DeviceStatus, { chip: string; dot: string }> = {
-  idle: {
-    chip: "bg-[oklch(0.74_0.18_155)]/15 text-[oklch(0.74_0.18_155)] ring-[oklch(0.74_0.18_155)]/30",
-    dot: "bg-[oklch(0.74_0.18_155)]",
-  },
-  running: {
-    chip: "bg-primary/15 text-primary ring-primary/30",
-    dot: "bg-primary",
-  },
-  offline: {
-    chip: "bg-muted text-muted-foreground ring-border",
-    dot: "bg-muted-foreground",
-  },
-  error: {
-    chip: "bg-destructive/15 text-destructive ring-destructive/30",
-    dot: "bg-destructive",
-  },
-};
-
 function DeviceRow({ device }: { device: Device }) {
-  const style = deviceStatusStyles[device.status];
   return (
-    <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
+    <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_80px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
       <div className="flex items-center gap-2 min-w-0">
         <Server className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate font-medium">{device.name}</span>
       </div>
       <div className="truncate text-sm text-muted-foreground">{device.deviceType ?? "—"}</div>
       <div>
-        <span
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1",
-            style.chip,
-          )}
-        >
-          <span className={cn("h-1.5 w-1.5 rounded-full", style.dot)} />
-          {device.status}
-        </span>
+        <DeviceStatusPicker device={device} />
       </div>
       <div className="truncate text-sm text-muted-foreground">{device.location ?? "—"}</div>
       <div className="truncate text-sm text-muted-foreground">{device.description ?? "—"}</div>
+      <div className="flex justify-end">
+        <DeviceDeleteButton deviceId={device.id} deviceName={device.name} />
+      </div>
     </div>
   );
 }
@@ -212,9 +201,10 @@ const recordStatusStyles: Record<ReproductionStatus, { chip: string; bar: string
 };
 
 function RecordRow({ record }: { record: ReproductionRecord }) {
+  const { t } = useI18n();
   const style = recordStatusStyles[record.status];
   return (
-    <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
+    <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr_96px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
       <div className="min-w-0">
         <div className="truncate font-medium">{record.paper.title}</div>
         <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
@@ -225,8 +215,13 @@ function RecordRow({ record }: { record: ReproductionRecord }) {
         {record.device?.name ?? "—"}
       </div>
       <div>
-        <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1", style.chip)}>
-          {record.status}
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ring-1",
+            style.chip,
+          )}
+        >
+          {t(`repro.status.${record.status}`)}
         </span>
       </div>
       <div className="flex items-center gap-3">
@@ -240,11 +235,11 @@ function RecordRow({ record }: { record: ReproductionRecord }) {
           {record.progress}%
         </span>
       </div>
-      <div className="truncate text-xs text-muted-foreground">
-        {formatTs(record.startedAt)}
-      </div>
-      <div className="truncate text-xs text-muted-foreground">
-        {formatTs(record.finishedAt)}
+      <div className="truncate text-xs text-muted-foreground">{formatTs(record.startedAt)}</div>
+      <div className="truncate text-xs text-muted-foreground">{formatTs(record.finishedAt)}</div>
+      <div className="flex items-center justify-end gap-1">
+        <ReproductionFormDialog mode="edit" record={record} />
+        <ReproductionDeleteButton recordId={record.id} paperTitle={record.paper.title} />
       </div>
     </div>
   );

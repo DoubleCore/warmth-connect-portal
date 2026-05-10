@@ -43,15 +43,13 @@ export function sanitizeFtsQuery(raw: string): string {
 }
 
 /**
- * bm25() 是越小越相关（通常 0 ~ 数十）。这里把它归一化到 (0, 1]：
- *   score = 1 / (1 + rank)
- * 完美命中时 rank≈0 → score≈1；弱相关时 rank 很大 → score→0。
+ * FTS5 `bm25()` 返回的是**负值**（越负越相关），且数量级随语料变化很大
+ * （可以是 -1e-6 也可以是 -10）。绝对值映射成 0-1 的分数直接用效果很差——
+ * UI 上几乎所有结果的 Relevance 都会显示成 0.00。
+ *
+ * 所以真正的分数计算放在 `searchPapers` 里，做结果集内的相对归一化
+ * （top→1.0、bottom→0.5，落到 0.5~1.0 区间）。这里保留负值约定的注释即可。
  */
-function bm25ToScore(bm25Rank: number): number {
-  // FTS5 在某些极端命中下会给到负值（"越负越相关"），先夹成 0 作下界。
-  const r = Math.max(0, bm25Rank);
-  return 1 / (1 + r);
-}
 
 // ---------- 读模型 ----------
 
@@ -151,19 +149,36 @@ export async function searchPapers(
   }
 
   const orderedIds = ftsRows.map((r) => r.id);
-  const paperRows = repo.getRagPapersByIdsPreservingOrder(orderedIds);
+  const paperRows = await repo.getRagPapersByIdsPreservingOrder(orderedIds);
   const rowById = new Map(paperRows.map((p) => [p.id, p]));
+
+  // 相对排名的分数：把结果集内的 bm25 分成 top→1.0、bottom→0.0 的线性归一化。
+  // 绝对 bm25 值在小语料下常常是 -1e-6 这种数量级，直接映射会让 UI 上所有
+  // "Relevance" 都显示 0.00。相对排名能稳定落到 0~1 区间，并且仍然保持
+  // bm25 的排序（越相关越靠前）。
+  const absRanks = ftsRows.map((r) => Math.abs(r.bm25_rank));
+  const maxAbs = Math.max(...absRanks);
+  const minAbs = Math.min(...absRanks);
+  const spread = maxAbs - minAbs;
 
   const items: RagSearchResultDto[] = [];
   for (const ftsRow of ftsRows) {
     const paper = rowById.get(ftsRow.id);
     if (!paper) continue; // 索引与数据偏差时跳过，不抛错
+
+    // 单结果或 bm25 完全相同时，全部给一个折中值 0.7，避免 "score=1.0" 虚高。
+    const absR = Math.abs(ftsRow.bm25_rank);
+    const score =
+      ftsRows.length === 1 || spread === 0
+        ? 0.7
+        : 0.5 + 0.5 * ((absR - minAbs) / spread);
+
     items.push({
       id: paper.id,
       title: paper.title,
       authors: parseAuthors(paper.authorsJson),
       venue: paper.venue,
-      score: Number(bm25ToScore(ftsRow.bm25_rank).toFixed(4)),
+      score: Number(score.toFixed(4)),
       excerpt: ftsRow.excerpt,
     });
   }

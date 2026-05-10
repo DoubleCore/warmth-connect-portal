@@ -1,4 +1,4 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { desc, eq, inArray, sql } from "drizzle-orm";
 import { db, rawDb } from "@/db/client.js";
 import { ragPapers, type RagPaperRow } from "@/db/schema.js";
 import { offset } from "@/shared/pagination.js";
@@ -118,16 +118,22 @@ export function ftsSearch(matchExpr: string, limit: number): FtsSearchRow[] {
 }
 
 /**
- * 根据 id 批量拉取 rag_papers 的"展示所需字段"，保持 ftsSearch 返回顺序。
- * 结果按 orderedIds 参数顺序返回，找不到的 id 会被跳过。
+ * 根据 id 批量拉取 rag_papers，按 orderedIds 的原顺序返回。
+ *
+ * 这里刻意走 Drizzle（`select().from(ragPapers).where(inArray(...))`）而不是
+ * 手写 `rawDb.prepare("SELECT * ...")`——因为 rawDb 返回的是原始 snake_case
+ * 列名（authors_json），而 Drizzle 在 `casing: "snake_case"` 下会把它映射成
+ * camelCase（authorsJson）。service 层统一用 camelCase，混用就会踩"authors
+ * 永远是空数组"这种 bug。
  */
-export function getRagPapersByIdsPreservingOrder(orderedIds: number[]): RagPaperRow[] {
+export async function getRagPapersByIdsPreservingOrder(
+  orderedIds: number[],
+): Promise<RagPaperRow[]> {
   if (orderedIds.length === 0) return [];
-  const placeholders = orderedIds.map(() => "?").join(",");
-  const stmt = rawDb.prepare(
-    `SELECT * FROM rag_papers WHERE id IN (${placeholders})`,
-  );
-  const rows = stmt.all(...orderedIds) as RagPaperRow[];
+  const rows = await db
+    .select()
+    .from(ragPapers)
+    .where(inArray(ragPapers.id, orderedIds));
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: RagPaperRow[] = [];
   for (const id of orderedIds) {
