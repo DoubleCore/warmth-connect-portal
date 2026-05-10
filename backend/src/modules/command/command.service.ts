@@ -2,8 +2,10 @@ import type { Logger } from "pino";
 import { NotFoundError } from "@/shared/errors.js";
 import { baseLogger } from "@/shared/logger.js";
 import type {
+  CommandHistoryDto,
   CommandMessageResponseDto,
   CommandSessionDto,
+  CommandSessionHistoryDto,
   CommandStatus,
   CommandStreamEvent,
   ConfirmCommandActionInput,
@@ -402,10 +404,10 @@ async function runCommand(input: RunCommandInput): Promise<void> {
       err instanceof HermesError
         ? { type: "error", code: err.code, message: err.message }
         : {
-            type: "error",
-            code: "INTERNAL_ERROR",
-            message: err instanceof Error ? err.message : "Unknown error",
-          };
+          type: "error",
+          code: "INTERNAL_ERROR",
+          message: err instanceof Error ? err.message : "Unknown error",
+        };
 
     try {
       // 兜底 flush，避免掉尾部文本

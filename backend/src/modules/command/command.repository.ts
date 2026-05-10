@@ -187,6 +187,27 @@ export async function listEventsAfter(
   return rows as CommandEventRowWithSeq[];
 }
 
+/**
+ * 批量拉取一组 commandId 下的所有事件，一次查询走 IN 过滤，避免 N+1。
+ * 结果按 rowid 升序，调用方按 commandId 自己分桶即可。
+ */
+export async function listEventsByCommandIds(
+  commandIds: string[],
+): Promise<CommandEventRowWithSeq[]> {
+  if (commandIds.length === 0) return [];
+  const rows = await db
+    .select(EVENT_SELECT)
+    .from(commandEvents)
+    .where(
+      sql`${commandEvents.commandId} IN (${sql.join(
+        commandIds.map((id) => sql`${id}`),
+        sql`, `,
+      )})`,
+    )
+    .orderBy(asc(sql`${commandEvents}.rowid`));
+  return rows as CommandEventRowWithSeq[];
+}
+
 /** 根据事件 UUID 定位 seq，用于 Last-Event-ID 重连 */
 export async function getEventById(id: string): Promise<CommandEventRowWithSeq | null> {
   const rows = await db

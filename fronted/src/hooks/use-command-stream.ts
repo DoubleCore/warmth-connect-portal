@@ -233,13 +233,17 @@ export function useCommandStream(options?: {
       const trimmed = message.trim();
       if (!trimmed) return;
 
-      // 清理上一次的状态（但保留 sessionId 以复用）
+      // 开始新一轮追问：关掉旧 SSE 连接，清掉上一轮残留的错误 / 确认卡片，
+      // 但**保留 transcript**——这样多轮对话能在 /research 面板里连续累积，
+      // 用户能看到"问过什么 + 回答过什么"的完整历史。
+      //
+      // 清空历史的入口集中在：
+      //   - reset()      ：保留 sessionId、清 transcript
+      //   - newSession() ：清 sessionId + 清 transcript（右上角"新建会话"按钮）
       closeStream();
       setError(null);
       setPendingConfirmation(null);
-      setTranscript([]);
       setCurrentCommandId(null);
-      seqRef.current = 0;
       setPhase("connecting");
 
       try {

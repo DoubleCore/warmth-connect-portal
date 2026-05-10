@@ -72,40 +72,40 @@ export type CommandMessageResponseDto = {
  */
 export type CommandStreamEvent =
   | {
-      type: "thinking";
-      message: string;
-    }
+    type: "thinking";
+    message: string;
+  }
   | {
-      type: "agent_message";
-      message: string;
-    }
+    type: "agent_message";
+    message: string;
+  }
   | {
-      type: "tool_start";
-      toolName: string;
-      displayName: string;
-    }
+    type: "tool_start";
+    toolName: string;
+    displayName: string;
+  }
   | {
-      type: "tool_result";
-      toolName: string;
-      summary: string;
-      result?: unknown;
-    }
+    type: "tool_result";
+    toolName: string;
+    summary: string;
+    result?: unknown;
+  }
   | {
-      type: "need_confirmation";
-      confirmationId: string;
-      message: string;
-      payload: unknown;
-    }
+    type: "need_confirmation";
+    confirmationId: string;
+    message: string;
+    payload: unknown;
+  }
   | {
-      type: "final";
-      message?: string;
-      result: unknown;
-    }
+    type: "final";
+    message?: string;
+    result: unknown;
+  }
   | {
-      type: "error";
-      message: string;
-      code?: string;
-    };
+    type: "error";
+    message: string;
+    code?: string;
+  };
 
 // ---------- 确认（Phase 3） ----------
 
@@ -128,4 +128,27 @@ export type ConfirmationResponseDto = {
   action: "confirm" | "cancel";
   /** true 表示 Backend 成功把决策递给了挂起的 runCommand */
   accepted: boolean;
+};
+
+// ---------- 会话历史回放 ----------
+
+/**
+ * 单条 command 在 /api/command/sessions/:id/history 里的表现。
+ * 用户原始提问 + 按时间顺序的所有事件，用于前端 `transcript` 的重建。
+ */
+export type CommandHistoryDto = {
+  commandId: string;
+  userMessage: string;
+  status: CommandStatus;
+  createdAt: string;
+  updatedAt: string;
+  /** 该 command 下的所有事件，按落库顺序 */
+  events: CommandStreamEvent[];
+};
+
+export type CommandSessionHistoryDto = {
+  sessionId: string;
+  entry: string | null;
+  createdAt: string;
+  commands: CommandHistoryDto[];
 };
