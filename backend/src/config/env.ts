@@ -10,6 +10,13 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
     .default("info"),
+
+  // ---------- Hermes Agent 同机 HTTP 直连 ----------
+  // 详见 Hermes_Command_Center_HTTP_直连可用版.md §2 / §7
+  HERMES_BASE_URL: z.string().url().default("http://127.0.0.1:8642"),
+  HERMES_TIMEOUT_MS: z.coerce.number().int().positive().default(120_000),
+  // 可选。Hermes 侧若启用 token 鉴权，则通过 Authorization: Bearer <key> 携带。
+  HERMES_API_KEY: z.string().min(1).optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -30,4 +37,4 @@ export const corsOrigins =
         .filter(Boolean);
 
 /** Hard limit for uploaded PDF body size. Tunable via env if we ever need to. */
-export const PDF_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
+export const PDF_MAX_BYTES = 26 * 1024 * 1024; // 26 MB
