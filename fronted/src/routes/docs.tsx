@@ -23,8 +23,7 @@ export const Route = createFileRoute("/docs")({
       { title: "技术架构 — Hermes AI" },
       {
         name: "description",
-        content:
-          "Paper Watcher 三层技术架构说明：Hermes 任务执行、后端数据与 RAG、前端工作台。",
+        content: "Paper Watcher 三层技术架构说明：Hermes 任务执行、后端数据与 RAG、前端工作台。",
       },
     ],
   }),
@@ -132,21 +131,22 @@ function DocsPage() {
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-primary">
               <ChevronLeft className="h-3.5 w-3.5" aria-hidden /> 架构概览
             </div>
-            <h1 className="mt-4 text-5xl font-bold tracking-tight">
-              Paper Watcher 三层技术架构
-            </h1>
+            <h1 className="mt-4 text-5xl font-bold tracking-tight">Paper Watcher 三层技术架构</h1>
             <p className="mt-6 text-base leading-relaxed text-muted-foreground">
-              Hermes 作为底层任务执行与指令中心，Paper Watcher Backend 作为论文数据库与 Abstract
-              RAG 服务，Frontend 作为面向用户的科研论文工作台展示层。
+              Hermes 作为底层任务执行与指令中心，Paper Watcher Backend 作为论文数据库与 Abstract RAG
+              服务，Frontend 作为面向用户的科研论文工作台展示层。
             </p>
 
             {/* 01 Overview */}
             <Section id="overview" number="01" title="项目定位" />
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Paper Watcher 是一个面向科研论文管理的轻量级工作台。第一版聚焦于：论文信息收集、论文数据库展示、Abstract 知识库、RAG 问答、前端工作台展示、Hermes 指令入口。
+              Paper Watcher
+              是一个面向科研论文管理的轻量级工作台。第一版聚焦于：论文信息收集、论文数据库展示、Abstract
+              知识库、RAG 问答、前端工作台展示、Hermes 指令入口。
             </p>
             <Callout>
-              <strong>核心原则：</strong>Hermes 负责执行任务，后端负责存储和 RAG，前端负责展示和交互。
+              <strong>核心原则：</strong>Hermes 负责执行任务，后端负责存储和
+              RAG，前端负责展示和交互。
             </Callout>
 
             {/* 02 Layers overview */}
@@ -184,7 +184,8 @@ function DocsPage() {
             {/* 03 Hermes */}
             <Section id="hermes" number="03" title="Hermes — 任务执行层" />
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Hermes 是系统的底层任务执行者，也可以理解为“后端的后端”。它不承担页面展示与数据库管理 UI。
+              Hermes 是系统的底层任务执行者，也可以理解为“后端的后端”。它不承担页面展示与数据库管理
+              UI。
             </p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <BulletCard
@@ -227,7 +228,8 @@ function DocsPage() {
             {/* 04 Backend */}
             <Section id="backend" number="04" title="Backend — 数据与 RAG 层" />
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Paper Watcher Backend 是数据层与服务层。核心任务是管理论文数据库，并基于论文 abstract 提供轻量 RAG 能力。
+              Paper Watcher Backend 是数据层与服务层。核心任务是管理论文数据库，并基于论文 abstract
+              提供轻量 RAG 能力。
             </p>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <BulletCard
@@ -271,7 +273,8 @@ function DocsPage() {
             {/* 05 Frontend */}
             <Section id="frontend" number="05" title="Frontend — 展示与交互层" />
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Frontend 不直接处理论文，也不直接操作数据库。它把 Hermes、数据库、RAG 与论文信息用页面展示出来。
+              Frontend 不直接处理论文，也不直接操作数据库。它把 Hermes、数据库、RAG
+              与论文信息用页面展示出来。
             </p>
             <CodeBlock
               lang="sitemap"
@@ -366,33 +369,19 @@ function DocsPage() {
                 icon={<Boxes className="h-5 w-5 text-primary" />}
                 name="rag_chunks"
                 desc="进入 RAG 的内容；第一版只存 abstract。"
-                fields={[
-                  "id, paper_id",
-                  "chunk_type, chunk_text",
-                  "chroma_id",
-                  "created_at",
-                ]}
+                fields={["id, paper_id", "chunk_type, chunk_text", "chroma_id", "created_at"]}
               />
               <TableCard
                 icon={<MessageSquareText className="h-5 w-5 text-primary" />}
                 name="qa_logs"
                 desc="记录问答历史。"
-                fields={[
-                  "id, question, answer",
-                  "source_paper_ids",
-                  "asked_by",
-                  "created_at",
-                ]}
+                fields={["id, question, answer", "source_paper_ids", "asked_by", "created_at"]}
               />
               <TableCard
                 icon={<Activity className="h-5 w-5 text-primary" />}
                 name="system_events"
                 desc="记录系统事件。"
-                fields={[
-                  "id, event_type",
-                  "message, payload_json",
-                  "created_at",
-                ]}
+                fields={["id, event_type", "message, payload_json", "created_at"]}
               />
             </div>
 
@@ -481,10 +470,7 @@ function DocsPage() {
         </main>
 
         {/* Right rail */}
-        <aside
-          className="hidden w-64 shrink-0 px-6 py-10 xl:block"
-          aria-label="On this page"
-        >
+        <aside className="hidden w-64 shrink-0 px-6 py-10 xl:block" aria-label="On this page">
           <div>
             <div className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
               本页导航
@@ -496,9 +482,7 @@ function DocsPage() {
                     href={`#${s.anchor}`}
                     className={cn(
                       "block transition-colors",
-                      i === 0
-                        ? "text-primary"
-                        : "text-muted-foreground hover:text-foreground",
+                      i === 0 ? "text-primary" : "text-muted-foreground hover:text-foreground",
                     )}
                   >
                     {s.label}
@@ -565,15 +549,7 @@ function DocsPage() {
 // Presentational helpers
 // ---------------------------------------------------------------------------
 
-function Section({
-  id,
-  number,
-  title,
-}: {
-  id: string;
-  number: string;
-  title: string;
-}) {
+function Section({ id, number, title }: { id: string; number: string; title: string }) {
   return (
     <div id={id} className="mt-14 flex items-center gap-4 scroll-mt-24">
       <span className="rounded-md bg-primary/15 px-2.5 py-1 text-sm font-semibold text-primary">
@@ -630,9 +606,7 @@ function BulletCard({
     <div
       className={cn(
         "rounded-2xl border p-5",
-        tone === "primary"
-          ? "border-primary/30 bg-primary/5"
-          : "border-border bg-card",
+        tone === "primary" ? "border-primary/30 bg-primary/5" : "border-border bg-card",
       )}
     >
       <div
@@ -710,9 +684,7 @@ function TableCard({
   );
 }
 
-type CodeLine =
-  | { c: "muted" | "code"; t: React.ReactNode }
-  | { c: "spacer"; t?: undefined };
+type CodeLine = { c: "muted" | "code"; t: React.ReactNode } | { c: "spacer"; t?: undefined };
 
 function CodeBlock({ lang, lines }: { lang: string; lines: CodeLine[] }) {
   return (
@@ -726,9 +698,7 @@ function CodeBlock({ lang, lines }: { lang: string; lines: CodeLine[] }) {
           return (
             <div
               key={i}
-              className={
-                l.c === "muted" ? "text-muted-foreground" : "text-foreground/90"
-              }
+              className={l.c === "muted" ? "text-muted-foreground" : "text-foreground/90"}
             >
               {l.t}
             </div>

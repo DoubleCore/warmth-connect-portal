@@ -34,7 +34,11 @@ export function PdfUploadButton({ paperId }: { paperId: string }) {
     },
     onError: (err) => {
       const msg =
-        err instanceof ApiError ? err.message : err instanceof Error ? err.message : "upload failed";
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : "upload failed";
       setErrorMsg(t("paper.uploadError", { message: msg }));
     },
   });

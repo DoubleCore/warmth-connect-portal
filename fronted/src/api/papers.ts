@@ -13,7 +13,10 @@ export async function getPaperDetail(paperId: string): Promise<PaperDetail> {
 /** Partially update a paper's metadata. */
 export async function updatePaper(
   paperId: string,
-  input: Partial<Omit<PaperListItem, "id">> & { abstract?: string | null; pdfStoragePath?: string | null },
+  input: Partial<Omit<PaperListItem, "id">> & {
+    abstract?: string | null;
+    pdfStoragePath?: string | null;
+  },
 ): Promise<PaperListItem> {
   return apiFetch<PaperListItem>(`/api/papers/${encodeURIComponent(paperId)}`, {
     method: "PATCH",
@@ -40,7 +43,10 @@ export async function uploadPaperPdf(paperId: string, file: File): Promise<Paper
   // Reuse apiFetch's envelope logic by reading the JSON body here.
   const json = (await res.json()) as
     | { success: true; data: PaperListItem }
-    | { success: false; error: { code: string; message: string; details?: unknown; requestId?: string } };
+    | {
+        success: false;
+        error: { code: string; message: string; details?: unknown; requestId?: string };
+      };
   if (!json.success) {
     throw new ApiError(
       res.status,

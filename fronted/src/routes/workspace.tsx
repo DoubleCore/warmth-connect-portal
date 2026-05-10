@@ -76,11 +76,36 @@ function WorkspacePage() {
           </div>
 
           <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <StatCard label={t("workspace.stat.totalDevices")} value={devices.length} icon={HardDrive} accent="text-muted-foreground" />
-            <StatCard label={t("workspace.stat.idle")} value={stats.idle} icon={CheckCircle2} accent="text-[oklch(0.74_0.18_155)]" />
-            <StatCard label={t("workspace.stat.running")} value={stats.running} icon={RefreshCw} accent="text-primary" />
-            <StatCard label={t("workspace.stat.offline")} value={stats.offline} icon={PowerOff} accent="text-muted-foreground" />
-            <StatCard label={t("workspace.stat.error")} value={stats.error} icon={AlertCircle} accent="text-destructive" />
+            <StatCard
+              label={t("workspace.stat.totalDevices")}
+              value={devices.length}
+              icon={HardDrive}
+              accent="text-muted-foreground"
+            />
+            <StatCard
+              label={t("workspace.stat.idle")}
+              value={stats.idle}
+              icon={CheckCircle2}
+              accent="text-[oklch(0.74_0.18_155)]"
+            />
+            <StatCard
+              label={t("workspace.stat.running")}
+              value={stats.running}
+              icon={RefreshCw}
+              accent="text-primary"
+            />
+            <StatCard
+              label={t("workspace.stat.offline")}
+              value={stats.offline}
+              icon={PowerOff}
+              accent="text-muted-foreground"
+            />
+            <StatCard
+              label={t("workspace.stat.error")}
+              value={stats.error}
+              icon={AlertCircle}
+              accent="text-destructive"
+            />
           </div>
 
           <div className="mt-5 overflow-hidden rounded-2xl border border-border">
@@ -95,7 +120,10 @@ function WorkspacePage() {
             {devicesQuery.isLoading ? (
               <BlockMessage loading text={t("workspace.loading")} />
             ) : devicesQuery.isError && !isNetworkError(devicesQuery.error) ? (
-              <BlockMessage tone="error" text={t("workspace.loadError", { message: getErrorMessage(devicesQuery.error) })} />
+              <BlockMessage
+                tone="error"
+                text={t("workspace.loadError", { message: getErrorMessage(devicesQuery.error) })}
+              />
             ) : devices.length === 0 ? (
               <BlockMessage text={t("workspace.empty")} />
             ) : (
@@ -122,7 +150,10 @@ function WorkspacePage() {
             {recordsQuery.isLoading ? (
               <BlockMessage loading text={t("workspace.loading")} />
             ) : recordsQuery.isError && !isNetworkError(recordsQuery.error) ? (
-              <BlockMessage tone="error" text={t("workspace.loadError", { message: getErrorMessage(recordsQuery.error) })} />
+              <BlockMessage
+                tone="error"
+                text={t("workspace.loadError", { message: getErrorMessage(recordsQuery.error) })}
+              />
             ) : records.length === 0 ? (
               <BlockMessage text={t("workspace.empty")} />
             ) : (
@@ -207,13 +238,9 @@ function RecordRow({ record }: { record: ReproductionRecord }) {
     <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr_96px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
       <div className="min-w-0">
         <div className="truncate font-medium">{record.paper.title}</div>
-        <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
-          {record.id}
-        </div>
+        <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{record.id}</div>
       </div>
-      <div className="truncate text-sm text-muted-foreground">
-        {record.device?.name ?? "—"}
-      </div>
+      <div className="truncate text-sm text-muted-foreground">{record.device?.name ?? "—"}</div>
       <div>
         <span
           className={cn(

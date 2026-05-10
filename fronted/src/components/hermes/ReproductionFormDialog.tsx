@@ -25,10 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EntityCombobox, type ComboboxOption } from "@/components/hermes/EntityCombobox";
-import {
-  createReproductionRecord,
-  updateReproductionRecord,
-} from "@/api/reproduction";
+import { createReproductionRecord, updateReproductionRecord } from "@/api/reproduction";
 import { listPapers } from "@/api/papers";
 import { listDevices } from "@/api/devices";
 import { ApiError } from "@/lib/api-client";
@@ -139,9 +136,10 @@ export function ReproductionFormDialog({
   const paperOptions: ComboboxOption[] = (papersQuery.data?.items ?? []).map((p) => ({
     value: p.id,
     label: p.title,
-    hint: [p.authors[0], p.publishedYear ? String(p.publishedYear) : null, p.source]
-      .filter(Boolean)
-      .join(" · ") || null,
+    hint:
+      [p.authors[0], p.publishedYear ? String(p.publishedYear) : null, p.source]
+        .filter(Boolean)
+        .join(" · ") || null,
   }));
   const deviceOptions: ComboboxOption[] = (devicesQuery.data?.items ?? []).map((d) => ({
     value: d.id,
@@ -302,7 +300,11 @@ export function ReproductionFormDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="record-finished-at">{t("workspace.record.finishedAtLabel")}</Label>
-              <Input id="record-finished-at" type="datetime-local" {...form.register("finishedAt")} />
+              <Input
+                id="record-finished-at"
+                type="datetime-local"
+                {...form.register("finishedAt")}
+              />
             </div>
           </div>
 
@@ -334,9 +336,7 @@ export function ReproductionFormDialog({
 
           {mutation.isError && (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
-              <div>
-                {t("workspace.record.saveError", { message: errMsg(mutation.error) })}
-              </div>
+              <div>{t("workspace.record.saveError", { message: errMsg(mutation.error) })}</div>
               {mutation.error instanceof ApiError && mutation.error.requestId && (
                 <div className="mt-1 font-mono text-[10px] opacity-70">
                   {t("workspace.record.requestIdHint", { rid: mutation.error.requestId })}

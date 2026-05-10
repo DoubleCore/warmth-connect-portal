@@ -146,10 +146,7 @@ function PaperDetailPage() {
           <div className="my-8 h-px bg-border" />
 
           <section aria-labelledby="abstract-heading">
-            <h2
-              id="abstract-heading"
-              className="flex items-center gap-2 text-2xl font-semibold"
-            >
+            <h2 id="abstract-heading" className="flex items-center gap-2 text-2xl font-semibold">
               <Sparkles className="h-5 w-5 text-primary" aria-hidden />
               {t("paper.abstract")}
             </h2>
@@ -178,9 +175,7 @@ function PaperDetailPage() {
               <h2 id="analysis-heading" className="text-xl font-semibold">
                 {t("paper.analysis.heading")}
               </h2>
-              <p className="text-xs text-muted-foreground">
-                {t("paper.analysis.subheading")}
-              </p>
+              <p className="text-xs text-muted-foreground">{t("paper.analysis.subheading")}</p>
             </div>
             <Link
               to="/search"
@@ -194,11 +189,7 @@ function PaperDetailPage() {
           </div>
 
           <div className="mt-6 space-y-4">
-            {analysis ? (
-              <AnalysisSections analysis={analysis} />
-            ) : (
-              <EmptyAnalysis />
-            )}
+            {analysis ? <AnalysisSections analysis={analysis} /> : <EmptyAnalysis />}
           </div>
         </aside>
       </div>
@@ -244,12 +235,7 @@ function AnalysisSections({ analysis }: { analysis: PaperAnalysis }) {
   return (
     <>
       {visible.map(({ key, titleKey, icon, defaultOpen }) => (
-        <AnalysisCard
-          key={key}
-          icon={icon}
-          title={t(titleKey)}
-          defaultOpen={defaultOpen ?? false}
-        >
+        <AnalysisCard key={key} icon={icon} title={t(titleKey)} defaultOpen={defaultOpen ?? false}>
           <p className="whitespace-pre-wrap text-sm leading-6 text-foreground/85">
             {analysis[key]}
           </p>

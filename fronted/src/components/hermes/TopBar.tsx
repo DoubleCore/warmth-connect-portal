@@ -67,10 +67,7 @@ export function TopBar({ active = "Command" }: { active?: TopBarTab }) {
         })}
       </nav>
       <div className="flex items-center gap-4">
-        <span
-          className="hidden text-xs text-muted-foreground md:inline"
-          aria-live="polite"
-        >
+        <span className="hidden text-xs text-muted-foreground md:inline" aria-live="polite">
           {greeting}
         </span>
         <button

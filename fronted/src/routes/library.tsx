@@ -1,14 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
-import {
-  FileText,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  AlertTriangle,
-} from "lucide-react";
+import { FileText, Search, ChevronLeft, ChevronRight, Loader2, AlertTriangle } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
@@ -45,9 +38,7 @@ function LibraryPage() {
   const end = start === 0 ? 0 : start + items.length - 1;
 
   const rangeLabel =
-    total === 0
-      ? t("library.noMatch")
-      : t("library.rangeLabel", { start, end, total });
+    total === 0 ? t("library.noMatch") : t("library.rangeLabel", { start, end, total });
 
   return (
     <Shell active="Library">
@@ -112,7 +103,14 @@ function LibraryPage() {
               <div className="text-xs text-muted-foreground">{t("library.emptyHint")}</div>
             </div>
           ) : (
-            items.map((p) => <PaperRow key={p.id} paper={p} etAlLabel={t("library.etAl")} openLabel={t("library.table.open")} />)
+            items.map((p) => (
+              <PaperRow
+                key={p.id}
+                paper={p}
+                etAlLabel={t("library.etAl")}
+                openLabel={t("library.table.open")}
+              />
+            ))
           )}
         </div>
 

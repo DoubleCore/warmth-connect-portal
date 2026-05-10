@@ -140,7 +140,13 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   try {
     parsed = await res.json();
   } catch {
-    throw new ApiError(res.status, "PARSE_ERROR", "Failed to parse JSON response", undefined, requestId);
+    throw new ApiError(
+      res.status,
+      "PARSE_ERROR",
+      "Failed to parse JSON response",
+      undefined,
+      requestId,
+    );
   }
 
   if (!isEnvelope<T>(parsed)) {

@@ -18,8 +18,8 @@ export async function getRagScope() {
 
 /** 可选：RAG 知识库列表。当前 UI 暂未使用，保留给未来的录入/管理页。 */
 export async function listRagPapers(page = 1, pageSize = 20) {
-  return apiFetch<{ items: RagPaper[]; pagination: { page: number; pageSize: number; total: number } }>(
-    "/api/rag/papers",
-    { query: { page, pageSize } },
-  );
+  return apiFetch<{
+    items: RagPaper[];
+    pagination: { page: number; pageSize: number; total: number };
+  }>("/api/rag/papers", { query: { page, pageSize } });
 }

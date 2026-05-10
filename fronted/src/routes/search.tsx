@@ -24,11 +24,7 @@ export const Route = createFileRoute("/search")({
   component: RagSearchPage,
 });
 
-const recents = [
-  "Attention mechanism bounds",
-  "MoE routing stability",
-  "KV cache compression",
-];
+const recents = ["Attention mechanism bounds", "MoE routing stability", "KV cache compression"];
 
 function RagSearchPage() {
   const { t } = useI18n();
@@ -185,12 +181,7 @@ function ResultsList({
   const { t } = useI18n();
 
   if (!isEnabled) {
-    return (
-      <EmptyCard
-        title={t("search.empty.title")}
-        hint={t("search.empty.hint")}
-      />
-    );
+    return <EmptyCard title={t("search.empty.title")} hint={t("search.empty.hint")} />;
   }
 
   if (isLoading) {
@@ -275,13 +266,8 @@ function ResultsList({
  */
 function sanitizeExcerpt(html: string): string {
   // Escape everything first, then re-allow <mark>...</mark>.
-  const escaped = html
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-  return escaped
-    .replace(/&lt;mark&gt;/g, "<mark>")
-    .replace(/&lt;\/mark&gt;/g, "</mark>");
+  const escaped = html.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return escaped.replace(/&lt;mark&gt;/g, "<mark>").replace(/&lt;\/mark&gt;/g, "</mark>");
 }
 
 function ScopeCard({

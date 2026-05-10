@@ -69,10 +69,7 @@ export function EntityCombobox({
           aria-expanded={open}
           aria-invalid={ariaInvalid || undefined}
           disabled={disabled}
-          className={cn(
-            "w-full justify-between font-normal",
-            !selected && "text-muted-foreground",
-          )}
+          className={cn("w-full justify-between font-normal", !selected && "text-muted-foreground")}
         >
           <span className="truncate">
             {loading
@@ -131,18 +128,13 @@ export function EntityCombobox({
                         }}
                       >
                         <Check
-                          className={cn(
-                            "mr-2 h-4 w-4",
-                            active ? "opacity-100" : "opacity-0",
-                          )}
+                          className={cn("mr-2 h-4 w-4", active ? "opacity-100" : "opacity-0")}
                           aria-hidden
                         />
                         <div className="min-w-0">
                           <div className="truncate">{opt.label}</div>
                           {opt.hint && (
-                            <div className="truncate text-xs text-muted-foreground">
-                              {opt.hint}
-                            </div>
+                            <div className="truncate text-xs text-muted-foreground">{opt.hint}</div>
                           )}
                         </div>
                       </CommandItem>

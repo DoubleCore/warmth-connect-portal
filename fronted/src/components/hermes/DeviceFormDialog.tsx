@@ -29,7 +29,12 @@ import { ApiError } from "@/lib/api-client";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { DeviceStatus } from "@/types/device";
 
-const deviceStatuses = ["idle", "running", "offline", "error"] as const satisfies readonly DeviceStatus[];
+const deviceStatuses = [
+  "idle",
+  "running",
+  "offline",
+  "error",
+] as const satisfies readonly DeviceStatus[];
 
 function makeSchema(t: ReturnType<typeof useI18n>["t"]) {
   return z.object({
@@ -176,9 +181,7 @@ export function DeviceFormDialog() {
 
           {mutation.isError && (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
-              <div>
-                {t("workspace.device.createError", { message: errMsg(mutation.error) })}
-              </div>
+              <div>{t("workspace.device.createError", { message: errMsg(mutation.error) })}</div>
               {mutation.error instanceof ApiError && mutation.error.requestId && (
                 <div className="mt-1 font-mono text-[10px] opacity-70">
                   {t("workspace.device.requestIdHint", { rid: mutation.error.requestId })}

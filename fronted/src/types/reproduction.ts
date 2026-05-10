@@ -1,9 +1,4 @@
-export type ReproductionStatus =
-  | "not_started"
-  | "running"
-  | "success"
-  | "failed"
-  | "paused";
+export type ReproductionStatus = "not_started" | "running" | "success" | "failed" | "paused";
 
 export type ReproductionRecord = {
   id: string;
