@@ -46,11 +46,7 @@ export async function insertSession(input: {
 }
 
 export async function getSessionById(id: string): Promise<CommandSessionRow | null> {
-  const rows = await db
-    .select()
-    .from(commandSessions)
-    .where(eq(commandSessions.id, id))
-    .limit(1);
+  const rows = await db.select().from(commandSessions).where(eq(commandSessions.id, id)).limit(1);
   return rows[0] ?? null;
 }
 
@@ -95,18 +91,11 @@ export async function listCommandsBySession(
   const whereExpr = excludeId
     ? and(eq(commands.sessionId, sessionId), ne(commands.id, excludeId))
     : eq(commands.sessionId, sessionId);
-  const rows = await db
-    .select()
-    .from(commands)
-    .where(whereExpr)
-    .orderBy(asc(commands.createdAt));
+  const rows = await db.select().from(commands).where(whereExpr).orderBy(asc(commands.createdAt));
   return rows;
 }
 
-export async function updateCommandStatus(
-  id: string,
-  status: CommandStatus,
-): Promise<void> {
+export async function updateCommandStatus(id: string, status: CommandStatus): Promise<void> {
   await db
     .update(commands)
     .set({ status, updatedAt: new Date().toISOString() })
@@ -114,10 +103,7 @@ export async function updateCommandStatus(
 }
 
 /** 写入 Hermes Runs API 返回的 run_id，便于后续 stop/approval 定位。 */
-export async function setCommandHermesRunId(
-  id: string,
-  hermesRunId: string,
-): Promise<void> {
+export async function setCommandHermesRunId(id: string, hermesRunId: string): Promise<void> {
   await db
     .update(commands)
     .set({ hermesRunId, updatedAt: new Date().toISOString() })
@@ -177,9 +163,7 @@ export async function appendEvent(
   return row as CommandEventRowWithSeq;
 }
 
-export async function listEventsByCommand(
-  commandId: string,
-): Promise<CommandEventRowWithSeq[]> {
+export async function listEventsByCommand(commandId: string): Promise<CommandEventRowWithSeq[]> {
   const rows = await db
     .select(EVENT_SELECT)
     .from(commandEvents)
@@ -198,20 +182,13 @@ export async function listEventsAfter(
   const rows = await db
     .select(EVENT_SELECT)
     .from(commandEvents)
-    .where(
-      and(
-        eq(commandEvents.commandId, commandId),
-        gt(sql`${commandEvents}.rowid`, afterSeq),
-      ),
-    )
+    .where(and(eq(commandEvents.commandId, commandId), gt(sql`${commandEvents}.rowid`, afterSeq)))
     .orderBy(asc(sql`${commandEvents}.rowid`));
   return rows as CommandEventRowWithSeq[];
 }
 
 /** 根据事件 UUID 定位 seq，用于 Last-Event-ID 重连 */
-export async function getEventById(
-  id: string,
-): Promise<CommandEventRowWithSeq | null> {
+export async function getEventById(id: string): Promise<CommandEventRowWithSeq | null> {
   const rows = await db
     .select(EVENT_SELECT)
     .from(commandEvents)

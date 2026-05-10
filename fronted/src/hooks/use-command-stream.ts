@@ -39,17 +39,17 @@ import type {
 
 export type CommandTranscriptItem =
   | {
-    kind: "user";
-    id: string;
-    message: string;
-    createdAt: number;
-  }
+      kind: "user";
+      id: string;
+      message: string;
+      createdAt: number;
+    }
   | {
-    kind: "event";
-    id: string;
-    event: CommandStreamEvent;
-    createdAt: number;
-  };
+      kind: "event";
+      id: string;
+      event: CommandStreamEvent;
+      createdAt: number;
+    };
 
 export type ActiveConfirmation = {
   confirmationId: string;
@@ -266,15 +266,15 @@ export function useCommandStream(options?: {
           const fallback: CommandStreamEvent =
             resp.status === "failed"
               ? {
-                type: "error",
-                message: resp.error?.message ?? "command failed",
-                ...(resp.error?.code !== undefined ? { code: resp.error.code } : {}),
-              }
+                  type: "error",
+                  message: resp.error?.message ?? "command failed",
+                  ...(resp.error?.code !== undefined ? { code: resp.error.code } : {}),
+                }
               : {
-                type: "final",
-                ...(resp.message !== undefined ? { message: resp.message } : {}),
-                result: resp.result ?? null,
-              };
+                  type: "final",
+                  ...(resp.message !== undefined ? { message: resp.message } : {}),
+                  result: resp.result ?? null,
+                };
           appendEvent(resp.commandId, fallback);
           if (fallback.type === "final") {
             setPhase("completed");

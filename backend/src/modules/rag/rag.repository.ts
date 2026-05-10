@@ -22,9 +22,7 @@ export async function listRagPapers(
     .limit(pageSize)
     .offset(offset(page, pageSize));
 
-  const totalResult = await db
-    .select({ count: sql<number>`count(*)` })
-    .from(ragPapers);
+  const totalResult = await db.select({ count: sql<number>`count(*)` }).from(ragPapers);
 
   return { rows, total: totalResult[0]?.count ?? 0 };
 }
@@ -130,10 +128,7 @@ export async function getRagPapersByIdsPreservingOrder(
   orderedIds: number[],
 ): Promise<RagPaperRow[]> {
   if (orderedIds.length === 0) return [];
-  const rows = await db
-    .select()
-    .from(ragPapers)
-    .where(inArray(ragPapers.id, orderedIds));
+  const rows = await db.select().from(ragPapers).where(inArray(ragPapers.id, orderedIds));
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: RagPaperRow[] = [];
   for (const id of orderedIds) {

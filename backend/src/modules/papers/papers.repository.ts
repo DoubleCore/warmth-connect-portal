@@ -2,7 +2,12 @@ import { and, asc, desc, eq, like, or, sql } from "drizzle-orm";
 import { db } from "@/db/client.js";
 import { paperAnalysis, papers, type PaperRow } from "@/db/schema.js";
 import { offset } from "@/shared/pagination.js";
-import type { CreatePaperInput, PaperListQuery, UpdatePaperInput, UpsertAnalysisInput } from "./papers.dto.js";
+import type {
+  CreatePaperInput,
+  PaperListQuery,
+  UpdatePaperInput,
+  UpsertAnalysisInput,
+} from "./papers.dto.js";
 
 function buildFilters(query: PaperListQuery) {
   const clauses = [];
@@ -78,10 +83,7 @@ export async function insertPaper(input: CreatePaperInput): Promise<PaperRow> {
   return row;
 }
 
-export async function updatePaper(
-  id: string,
-  input: UpdatePaperInput,
-): Promise<PaperRow | null> {
+export async function updatePaper(id: string, input: UpdatePaperInput): Promise<PaperRow | null> {
   // Only set the columns the caller provided so PATCH stays truly partial.
   const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (input.title !== undefined) patch.title = input.title;

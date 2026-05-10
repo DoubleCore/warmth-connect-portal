@@ -17,16 +17,12 @@ devicesRouter.post("/", zv("json", createDeviceSchema), async (c) => {
   return created(c, device);
 });
 
-devicesRouter.patch(
-  "/:deviceId",
-  zv("json", updateDeviceSchema),
-  async (c) => {
-    const id = c.req.param("deviceId");
-    const body = c.req.valid("json");
-    const device = await service.updateDevice(id, body);
-    return ok(c, device);
-  },
-);
+devicesRouter.patch("/:deviceId", zv("json", updateDeviceSchema), async (c) => {
+  const id = c.req.param("deviceId");
+  const body = c.req.valid("json");
+  const device = await service.updateDevice(id, body);
+  return ok(c, device);
+});
 
 devicesRouter.delete("/:deviceId", async (c) => {
   const id = c.req.param("deviceId");

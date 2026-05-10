@@ -7,9 +7,7 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1).default("./data/app.db"),
   PDF_STORAGE_DIR: z.string().min(1).default("./storage/pdfs"),
   CORS_ORIGIN: z.string().default("*"),
-  LOG_LEVEL: z
-    .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
-    .default("info"),
+  LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
 
   // ---------- Hermes Agent 同机 HTTP 直连 ----------
   // 详见 Hermes_Command_Center_HTTP_直连可用版.md §2 / §7
@@ -22,7 +20,6 @@ const envSchema = z.object({
 const parsed = envSchema.safeParse(process.env);
 
 if (!parsed.success) {
-  // eslint-disable-next-line no-console
   console.error("Invalid environment variables:", parsed.error.flatten().fieldErrors);
   process.exit(1);
 }

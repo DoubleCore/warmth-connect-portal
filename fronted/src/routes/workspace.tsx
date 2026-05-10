@@ -47,8 +47,8 @@ function WorkspacePage() {
     queryFn: listReproductionRecords,
   });
 
-  const devices = devicesQuery.data?.items ?? [];
-  const records = recordsQuery.data?.items ?? [];
+  const devices = useMemo(() => devicesQuery.data?.items ?? [], [devicesQuery.data]);
+  const records = useMemo(() => recordsQuery.data?.items ?? [], [recordsQuery.data]);
 
   const stats = useMemo(() => {
     const by: Record<DeviceStatus, number> = {

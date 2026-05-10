@@ -1,0 +1,12 @@
+node_modules
+dist
+data
+storage
+package-lock.json
+pnpm-lock.yaml
+
+# Hand-maintained markdown (tables rely on full-width CJS alignment Prettier breaks)
+*.md
+
+# Drizzle-managed snapshots
+src/db/migrations/meta

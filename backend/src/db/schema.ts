@@ -177,7 +177,6 @@ export type NewDeviceRow = typeof devices.$inferInsert;
 export type ReproductionRecordRow = typeof paperReproductionRecords.$inferSelect;
 export type NewReproductionRecordRow = typeof paperReproductionRecords.$inferInsert;
 
-
 /**
  * user_profile：单行用户 profile 表
  *
@@ -196,7 +195,6 @@ export const userProfile = sqliteTable("user_profile", {
 
 export type UserProfileRow = typeof userProfile.$inferSelect;
 export type NewUserProfileRow = typeof userProfile.$inferInsert;
-
 
 /**
  * Hermes 指令中心 —— 三张表
@@ -238,14 +236,7 @@ export const commands = sqliteTable(
     userId: text("user_id"),
     userMessage: text("user_message").notNull(),
     status: text("status", {
-      enum: [
-        "pending",
-        "running",
-        "waiting_confirmation",
-        "completed",
-        "failed",
-        "cancelled",
-      ],
+      enum: ["pending", "running", "waiting_confirmation", "completed", "failed", "cancelled"],
     })
       .notNull()
       .default("pending"),

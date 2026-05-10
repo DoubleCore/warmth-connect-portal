@@ -65,10 +65,7 @@ class PendingConfirmationRegistry {
    * - 如果 confirmationId 存在：resolve 挂起的 Promise，返回对应的 commandId
    * - 不存在：返回 null（confirmation 已失效 / 过期 / 被其它连接抢先处理过）
    */
-  resolve(
-    confirmationId: string,
-    decision: ConfirmationDecision,
-  ): { commandId: string } | null {
+  resolve(confirmationId: string, decision: ConfirmationDecision): { commandId: string } | null {
     const entry = this.pending.get(confirmationId);
     if (!entry) return null;
     this.pending.delete(confirmationId);

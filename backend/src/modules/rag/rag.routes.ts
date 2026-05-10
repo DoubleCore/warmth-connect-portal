@@ -2,11 +2,7 @@ import { createRouter } from "@/shared/context.js";
 import { created, ok } from "@/shared/response.js";
 import { zv } from "@/shared/validator.js";
 import { ValidationError } from "@/shared/errors.js";
-import {
-  createRagPaperSchema,
-  listRagPapersQuerySchema,
-  searchQuerySchema,
-} from "./rag.dto.js";
+import { createRagPaperSchema, listRagPapersQuerySchema, searchQuerySchema } from "./rag.dto.js";
 import * as service from "./rag.service.js";
 
 /**

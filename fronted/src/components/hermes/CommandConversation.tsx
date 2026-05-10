@@ -437,16 +437,11 @@ function Markdown({ children }: { children: string }) {
           ),
           table: (props) => (
             <div className="overflow-x-auto">
-              <table
-                className="my-1 w-full border-collapse text-left text-xs"
-                {...props}
-              />
+              <table className="my-1 w-full border-collapse text-left text-xs" {...props} />
             </div>
           ),
           thead: (props) => <thead className="bg-secondary/60" {...props} />,
-          th: (props) => (
-            <th className="border border-border px-2 py-1 font-semibold" {...props} />
-          ),
+          th: (props) => <th className="border border-border px-2 py-1 font-semibold" {...props} />,
           td: (props) => <td className="border border-border px-2 py-1 align-top" {...props} />,
         }}
       >

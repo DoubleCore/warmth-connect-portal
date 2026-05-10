@@ -8,10 +8,7 @@ import {
   type PaperRow,
   type ReproductionRecordRow,
 } from "@/db/schema.js";
-import type {
-  CreateReproductionInput,
-  UpdateReproductionInput,
-} from "./reproduction.dto.js";
+import type { CreateReproductionInput, UpdateReproductionInput } from "./reproduction.dto.js";
 
 export type ReproductionJoinedRow = {
   record: ReproductionRecordRow;
@@ -59,9 +56,7 @@ export async function getRecordById(id: string): Promise<ReproductionJoinedRow |
   };
 }
 
-export async function insertRecord(
-  input: CreateReproductionInput,
-): Promise<ReproductionRecordRow> {
+export async function insertRecord(input: CreateReproductionInput): Promise<ReproductionRecordRow> {
   const [row] = await db
     .insert(paperReproductionRecords)
     .values({

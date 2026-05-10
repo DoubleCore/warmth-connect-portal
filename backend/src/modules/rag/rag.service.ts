@@ -96,9 +96,7 @@ export async function getRagPaper(id: number): Promise<RagPaperListItemDto> {
   return toListItem(row);
 }
 
-export async function createRagPaper(
-  input: CreateRagPaperInput,
-): Promise<RagPaperListItemDto> {
+export async function createRagPaper(input: CreateRagPaperInput): Promise<RagPaperListItemDto> {
   const row = await repo.insertRagPaper({
     title: input.title,
     abstract: input.abstract,
@@ -126,10 +124,7 @@ export async function getScope(): Promise<RagScopeDto> {
  *  3. 执行 MATCH，拿到 rowid + bm25 + excerpt
  *  4. 按原顺序回查 rag_papers 填充 title/authors/venue
  */
-export async function searchPapers(
-  q: string,
-  limit: number,
-): Promise<RagSearchResponseDto> {
+export async function searchPapers(q: string, limit: number): Promise<RagSearchResponseDto> {
   const matchExpr = sanitizeFtsQuery(q);
   if (!matchExpr) {
     return { items: [], query: q, total: 0 };
@@ -169,9 +164,7 @@ export async function searchPapers(
     // 单结果或 bm25 完全相同时，全部给一个折中值 0.7，避免 "score=1.0" 虚高。
     const absR = Math.abs(ftsRow.bm25_rank);
     const score =
-      ftsRows.length === 1 || spread === 0
-        ? 0.7
-        : 0.5 + 0.5 * ((absR - minAbs) / spread);
+      ftsRows.length === 1 || spread === 0 ? 0.7 : 0.5 + 0.5 * ((absR - minAbs) / spread);
 
     items.push({
       id: paper.id,

@@ -18,10 +18,7 @@ import {
   type HermesRawEvent,
 } from "./hermes.client.js";
 import { commandEventBus } from "./command.bus.js";
-import {
-  pendingConfirmations,
-  type ConfirmationDecision,
-} from "./command.confirmations.js";
+import { pendingConfirmations, type ConfirmationDecision } from "./command.confirmations.js";
 import * as repo from "./command.repository.js";
 import type { CommandEventRowWithSeq } from "./command.repository.js";
 
@@ -50,9 +47,7 @@ import type { CommandEventRowWithSeq } from "./command.repository.js";
 
 // ---------- sessions ----------
 
-export async function createSession(
-  input: CreateCommandSessionInput,
-): Promise<CommandSessionDto> {
+export async function createSession(input: CreateCommandSessionInput): Promise<CommandSessionDto> {
   const row = await repo.insertSession({
     entry: input.entry ?? null,
     initialContext: input.initialContext ?? {},
@@ -289,10 +284,7 @@ async function runCommand(input: RunCommandInput): Promise<void> {
 
       if (raw.event === "run.failed") {
         await flushDeltas();
-        const msg =
-          typeof raw.data.error === "string"
-            ? raw.data.error
-            : "Hermes Agent 执行失败。";
+        const msg = typeof raw.data.error === "string" ? raw.data.error : "Hermes Agent 执行失败。";
         const err: CommandStreamEvent = {
           type: "error",
           code: "HERMES_AGENT_ERROR",
@@ -349,28 +341,17 @@ async function runCommand(input: RunCommandInput): Promise<void> {
         );
 
         // 决策 → Hermes approval API
-        const choice: "once" | "deny" =
-          decision.action === "confirm" ? "once" : "deny";
+        const choice: "once" | "deny" = decision.action === "confirm" ? "once" : "deny";
         try {
-          await hermesClient.resolveApproval(
-            { runId, choice },
-            logger,
-          );
+          await hermesClient.resolveApproval({ runId, choice }, logger);
         } catch (err) {
-          logger.error(
-            { err, runId, choice },
-            "Failed to resolve Hermes approval; run may stall",
-          );
+          logger.error({ err, runId, choice }, "Failed to resolve Hermes approval; run may stall");
           // approval 调用失败不是终态——Hermes 侧的 SSE 仍然挂着。
           // 兜底：发一个 error 事件并终止，避免悬挂
           const errEv: CommandStreamEvent = {
             type: "error",
-            code:
-              err instanceof HermesError ? err.code : "INTERNAL_ERROR",
-            message:
-              err instanceof Error
-                ? err.message
-                : "无法转发审批结果给 Hermes",
+            code: err instanceof HermesError ? err.code : "INTERNAL_ERROR",
+            message: err instanceof Error ? err.message : "无法转发审批结果给 Hermes",
           };
           await appendAndBroadcast(commandId, errEv);
           await repo.finalizeCommand(commandId, {
@@ -421,10 +402,10 @@ async function runCommand(input: RunCommandInput): Promise<void> {
       err instanceof HermesError
         ? { type: "error", code: err.code, message: err.message }
         : {
-          type: "error",
-          code: "INTERNAL_ERROR",
-          message: err instanceof Error ? err.message : "Unknown error",
-        };
+            type: "error",
+            code: "INTERNAL_ERROR",
+            message: err instanceof Error ? err.message : "Unknown error",
+          };
 
     try {
       // 兜底 flush，避免掉尾部文本
@@ -441,10 +422,7 @@ async function runCommand(input: RunCommandInput): Promise<void> {
       });
       finalized = true;
     } catch (inner) {
-      logger.error(
-        { err: inner },
-        "Failed to persist error event during runCommand failure",
-      );
+      logger.error({ err: inner }, "Failed to persist error event during runCommand failure");
     }
 
     logger.warn({ err, code: mapped.code }, "Command failed inside runCommand");
@@ -490,7 +468,7 @@ async function runCommand(input: RunCommandInput): Promise<void> {
         // 我们用 run_id 作为稳定 id：同一个 run 同时只会有一个挂起的 approval。
         return {
           type: "need_confirmation",
-          confirmationId: typeof d.run_id === "string" ? d.run_id : runId ?? commandId,
+          confirmationId: typeof d.run_id === "string" ? d.run_id : (runId ?? commandId),
           message: typeof d.message === "string" ? d.message : "需要用户确认才能继续。",
           payload: d,
         };
@@ -505,8 +483,7 @@ async function runCommand(input: RunCommandInput): Promise<void> {
 
 function buildToolSummary(d: Record<string, unknown>): string {
   const tool = typeof d.tool === "string" ? d.tool : "tool";
-  const duration =
-    typeof d.duration === "number" ? `${d.duration.toFixed(2)}s` : null;
+  const duration = typeof d.duration === "number" ? `${d.duration.toFixed(2)}s` : null;
   const hasError = d.error === true;
   if (hasError) return `${tool} 执行失败${duration ? `（${duration}）` : ""}`;
   return duration ? `${tool} 执行完成（${duration}）` : `${tool} 执行完成`;
@@ -547,9 +524,7 @@ export async function replayEvents(
   return repo.listEventsAfter(commandId, cursor.seq);
 }
 
-export function rowToStreamEvent(
-  row: CommandEventRowWithSeq,
-): CommandStreamEvent | null {
+export function rowToStreamEvent(row: CommandEventRowWithSeq): CommandStreamEvent | null {
   try {
     return JSON.parse(row.payloadJson) as CommandStreamEvent;
   } catch {
@@ -557,14 +532,10 @@ export function rowToStreamEvent(
   }
 }
 
-export async function listEvents(
-  commandId: string,
-): Promise<CommandStreamEvent[]> {
+export async function listEvents(commandId: string): Promise<CommandStreamEvent[]> {
   await getCommandOrThrow(commandId);
   const rows = await repo.listEventsByCommand(commandId);
-  return rows
-    .map(rowToStreamEvent)
-    .filter((e): e is CommandStreamEvent => e !== null);
+  return rows.map(rowToStreamEvent).filter((e): e is CommandStreamEvent => e !== null);
 }
 
 // ---------- 前端确认回执 ----------

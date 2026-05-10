@@ -32,7 +32,26 @@ export default tseslint.config(
           ],
         },
       ],
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react-refresh/only-export-components": [
+        "warn",
+        {
+          allowConstantExport: true,
+          // Named non-component exports we intentionally co-locate:
+          //   - shadcn/ui variant helpers (official pattern, co-lives with the component)
+          //   - Provider hooks (kept next to the Provider for API locality)
+          allowExportNames: [
+            "buttonVariants",
+            "badgeVariants",
+            "toggleVariants",
+            "navigationMenuTriggerStyle",
+            "useFormField",
+            "useSidebar",
+            "useI18n",
+            "useTheme",
+            "useMainCommandStream",
+          ],
+        },
+      ],
       "@typescript-eslint/no-unused-vars": "off",
     },
   },

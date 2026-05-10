@@ -254,9 +254,7 @@ function FeishuPairingCard() {
           onClick={handleTrigger}
           disabled={isLoading}
           aria-busy={isLoading}
-          aria-label={
-            hasResult ? t("settings.feishu.ctaRegenerate") : t("settings.feishu.cta")
-          }
+          aria-label={hasResult ? t("settings.feishu.ctaRegenerate") : t("settings.feishu.cta")}
           className={cn(
             "group relative rounded-2xl bg-white p-4 shadow-[var(--shadow-glow)] transition-transform",
             !isLoading && "hover:-translate-y-0.5 focus-visible:-translate-y-0.5",
@@ -264,13 +262,7 @@ function FeishuPairingCard() {
           )}
         >
           {hasResult ? (
-            <QRCodeSVG
-              value={qrValue}
-              size={176}
-              level="M"
-              bgColor="#ffffff"
-              fgColor="#000000"
-            />
+            <QRCodeSVG value={qrValue} size={176} level="M" bgColor="#ffffff" fgColor="#000000" />
           ) : (
             <div className={cn(!hasResult && !hasError ? "blur-md" : undefined)} aria-hidden>
               <FakeQr />
@@ -381,13 +373,11 @@ function extractPairingPayload(
     if (item.event.type !== "final") continue;
 
     // 1) message 字段最直接；它就是 Hermes run.completed 的 output
-    const fromMessage =
-      typeof item.event.message === "string" ? item.event.message : null;
+    const fromMessage = typeof item.event.message === "string" ? item.event.message : null;
 
     // 2) result 通常是 { output, usage }
     const result = item.event.result as { output?: unknown } | null | undefined;
-    const fromResult =
-      result && typeof result.output === "string" ? result.output : null;
+    const fromResult = result && typeof result.output === "string" ? result.output : null;
 
     const raw = (fromMessage ?? fromResult ?? "").trim();
     if (!raw) return null;

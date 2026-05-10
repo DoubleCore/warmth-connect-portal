@@ -29,8 +29,8 @@ export type RagSearchResultDto = {
   title: string;
   authors: string[];
   venue: string | null;
-  score: number;       // 归一化到 [0, 1]，越高越相关
-  excerpt: string;     // FTS5 snippet()，命中词用 <mark> 包裹
+  score: number; // 归一化到 [0, 1]，越高越相关
+  excerpt: string; // FTS5 snippet()，命中词用 <mark> 包裹
 };
 
 export type RagSearchResponseDto = {

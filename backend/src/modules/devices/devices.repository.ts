@@ -27,7 +27,10 @@ export async function insertDevice(input: CreateDeviceInput): Promise<DeviceRow>
   return row;
 }
 
-export async function updateDevice(id: string, input: UpdateDeviceInput): Promise<DeviceRow | null> {
+export async function updateDevice(
+  id: string,
+  input: UpdateDeviceInput,
+): Promise<DeviceRow | null> {
   const patch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
   if (input.name !== undefined) patch.name = input.name;
   if (input.deviceType !== undefined) patch.deviceType = input.deviceType ?? null;

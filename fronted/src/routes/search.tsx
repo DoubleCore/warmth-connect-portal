@@ -148,10 +148,7 @@ function RagSearchPage() {
         <div className="flex min-h-0 flex-1 gap-6 px-6 pt-6">
           {/* 左：对话 */}
           <div className="flex min-h-0 flex-1 flex-col">
-            <div
-              ref={scrollRef}
-              className="flex-1 space-y-5 overflow-y-auto pr-2"
-            >
+            <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto pr-2">
               {history.length === 0 ? (
                 <EmptyConversation />
               ) : (
@@ -162,13 +159,9 @@ function RagSearchPage() {
                     isLast={idx === history.length - 1}
                     loading={idx === history.length - 1 && isLoading}
                     error={
-                      idx === history.length - 1 && searchQuery.isError
-                        ? searchQuery.error
-                        : null
+                      idx === history.length - 1 && searchQuery.isError ? searchQuery.error : null
                     }
-                    hasResult={Boolean(
-                      idx === history.length - 1 && hasAnyResult,
-                    )}
+                    hasResult={Boolean(idx === history.length - 1 && hasAnyResult)}
                     panels={idx === history.length - 1 ? assistantPanels : null}
                     referenceChips={idx === history.length - 1 ? otherResults : []}
                   />
@@ -322,9 +315,7 @@ function EmptyConversation() {
         <Sparkles className="h-6 w-6" />
       </span>
       <h2 className="text-lg font-semibold">{t("search.emptyConversation.title")}</h2>
-      <p className="max-w-sm text-sm text-muted-foreground">
-        {t("search.emptyConversation.hint")}
-      </p>
+      <p className="max-w-sm text-sm text-muted-foreground">{t("search.emptyConversation.hint")}</p>
     </div>
   );
 }
@@ -441,9 +432,7 @@ function CurrentSourceCard({
         <span className="inline-block rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {t("search.panels.currentSource")}
         </span>
-        <h3 className="text-base font-semibold leading-snug">
-          {loading ? "—" : result?.title}
-        </h3>
+        <h3 className="text-base font-semibold leading-snug">{loading ? "—" : result?.title}</h3>
         <div className="flex flex-wrap gap-2">
           {loading ? (
             <span className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
@@ -462,9 +451,7 @@ function CurrentSourceCard({
         {result ? (
           <div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">
-                {t("search.panels.relevance")}
-              </span>
+              <span className="text-muted-foreground">{t("search.panels.relevance")}</span>
               <span className="font-mono tabular-nums text-[oklch(0.74_0.18_155)]">
                 {(result.score * 100).toFixed(1)}%
               </span>
@@ -496,19 +483,19 @@ function DataExtractionCard({
     () =>
       result
         ? [
-          { metric: "Relevance", value: `${(result.score * 100).toFixed(1)}%`, unit: "%" },
-          { metric: "Authors", value: String(result.authors.length), unit: "—" },
-          {
-            metric: "Venue",
-            value: result.venue ?? "—",
-            unit: "—",
-          },
-          {
-            metric: "Excerpt",
-            value: `${stripMarks(result.excerpt).length}`,
-            unit: "chars",
-          },
-        ]
+            { metric: "Relevance", value: `${(result.score * 100).toFixed(1)}%`, unit: "%" },
+            { metric: "Authors", value: String(result.authors.length), unit: "—" },
+            {
+              metric: "Venue",
+              value: result.venue ?? "—",
+              unit: "—",
+            },
+            {
+              metric: "Excerpt",
+              value: `${stripMarks(result.excerpt).length}`,
+              unit: "chars",
+            },
+          ]
         : [],
     [result],
   );
@@ -573,10 +560,7 @@ function ExecutionContextCard({
       </div>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm">
-          <span
-            className="h-2 w-2 rounded-full bg-[oklch(0.74_0.18_155)]"
-            aria-hidden
-          />
+          <span className="h-2 w-2 rounded-full bg-[oklch(0.74_0.18_155)]" aria-hidden />
           {t("search.panels.ragOnline")}
           <span className="text-muted-foreground">
             {papersIndexed !== undefined ? ` · ${papersIndexed}` : ""}
@@ -634,9 +618,7 @@ function ExecutionContextCard({
 function MetaCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border bg-background/40 px-3 py-2">
-      <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-        {label}
-      </div>
+      <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
       <div className="mt-1 font-mono text-sm tabular-nums">{value}</div>
     </div>
   );

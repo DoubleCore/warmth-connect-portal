@@ -28,15 +28,11 @@ export const commandRouter = createRouter();
 
 // ---------- sessions ----------
 
-commandRouter.post(
-  "/sessions",
-  zv("json", createCommandSessionSchema),
-  async (c) => {
-    const body = c.req.valid("json");
-    const session = await service.createSession(body);
-    return created(c, session);
-  },
-);
+commandRouter.post("/sessions", zv("json", createCommandSessionSchema), async (c) => {
+  const body = c.req.valid("json");
+  const session = await service.createSession(body);
+  return created(c, session);
+});
 
 // ---------- messages（Phase 1 非流式） ----------
 
@@ -126,16 +122,9 @@ commandRouter.get("/commands/:commandId/stream", async (c) => {
       }
 
       // 2) 若 command 已终态，回放完就结束
-      const terminal: ReadonlyArray<string> = [
-        "completed",
-        "failed",
-        "cancelled",
-      ];
+      const terminal: ReadonlyArray<string> = ["completed", "failed", "cancelled"];
       if (terminal.includes(command.status)) {
-        logger.debug(
-          { status: command.status },
-          "SSE replay-only (command already terminal)",
-        );
+        logger.debug({ status: command.status }, "SSE replay-only (command already terminal)");
         await closeStream();
         return;
       }
@@ -206,11 +195,7 @@ commandRouter.post(
     const confirmationId = c.req.param("confirmationId");
     const body = c.req.valid("json");
     const logger = c.get("logger") ?? baseLogger;
-    const result = await service.resolveConfirmation(
-      confirmationId,
-      body,
-      logger,
-    );
+    const result = await service.resolveConfirmation(confirmationId, body, logger);
     return ok(c, result);
   },
 );

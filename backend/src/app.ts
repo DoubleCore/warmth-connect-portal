@@ -91,10 +91,7 @@ export function createApp() {
 
   app.notFound((c) => {
     const rid = c.get("requestId");
-    return c.json<ErrorEnvelope>(
-      toErrorPayload("NOT_FOUND", "Route not found", rid),
-      404,
-    );
+    return c.json<ErrorEnvelope>(toErrorPayload("NOT_FOUND", "Route not found", rid), 404);
   });
 
   app.onError((err, c) => {

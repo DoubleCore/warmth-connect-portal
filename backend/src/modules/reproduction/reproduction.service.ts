@@ -31,7 +31,10 @@ export async function listRecords(): Promise<{ items: ReproductionRecordDto[] }>
   return { items: rows.map(toDto) };
 }
 
-async function validateReferences(paperId: string | undefined, deviceId: string | null | undefined) {
+async function validateReferences(
+  paperId: string | undefined,
+  deviceId: string | null | undefined,
+) {
   if (paperId) await papersService.getPaperOrThrow(paperId);
   if (deviceId) await devicesService.getDeviceOrThrow(deviceId);
 }

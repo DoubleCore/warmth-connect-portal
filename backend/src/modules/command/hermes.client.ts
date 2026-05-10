@@ -142,9 +142,7 @@ function joinUrl(base: string, path: string): string {
 }
 
 function isAbortError(err: unknown, signal: AbortSignal): boolean {
-  return (
-    (err as { name?: string } | null)?.name === "AbortError" || signal.aborted
-  );
+  return (err as { name?: string } | null)?.name === "AbortError" || signal.aborted;
 }
 
 export type HermesHttpClient = {
@@ -221,12 +219,10 @@ export function createHermesHttpClient(): HermesHttpClient {
       const durationMs = Date.now() - started;
       if (isAbortError(err, controller.signal)) {
         logger?.warn({ url, durationMs, timeout }, "Hermes HTTP call timed out");
-        throw new HermesError(
-          "HERMES_TIMEOUT",
-          "Hermes 执行超时，请稍后重试。",
-          504,
-          { url, timeoutMs: timeout },
-        );
+        throw new HermesError("HERMES_TIMEOUT", "Hermes 执行超时，请稍后重试。", 504, {
+          url,
+          timeoutMs: timeout,
+        });
       }
       logger?.error({ err, url, durationMs }, "Hermes HTTP call failed");
       throw new HermesError(
@@ -256,11 +252,7 @@ export function createHermesHttpClient(): HermesHttpClient {
       return (await response.json()) as TResp;
     } catch (err) {
       logger?.error({ err, url }, "Failed to parse Hermes JSON response");
-      throw new HermesError(
-        "HERMES_AGENT_ERROR",
-        "Hermes 返回的响应不是合法 JSON。",
-        502,
-      );
+      throw new HermesError("HERMES_AGENT_ERROR", "Hermes 返回的响应不是合法 JSON。", 502);
     }
   }
 
@@ -271,17 +263,11 @@ export function createHermesHttpClient(): HermesHttpClient {
    *   data: {"event":"message.delta","run_id":"...","delta":"你好"}\n\n
    * 没有独立的 `event:` 行，所以事件名从 JSON 的 `event` 字段读取。
    */
-  function openRunEventStream(
-    runId: string,
-    logger?: Logger,
-  ): AsyncIterable<HermesRawEvent> {
+  function openRunEventStream(runId: string, logger?: Logger): AsyncIterable<HermesRawEvent> {
     return (async function* () {
       const url = joinUrl(baseUrl, `/v1/runs/${runId}/events`);
       const connectController = new AbortController();
-      const connectTimer = setTimeout(
-        () => connectController.abort(),
-        connectTimeoutMs,
-      );
+      const connectTimer = setTimeout(() => connectController.abort(), connectTimeoutMs);
 
       let response: Response;
       try {
@@ -296,16 +282,11 @@ export function createHermesHttpClient(): HermesHttpClient {
       } catch (err) {
         clearTimeout(connectTimer);
         if (isAbortError(err, connectController.signal)) {
-          logger?.warn(
-            { url, connectTimeoutMs },
-            "Hermes SSE connect timed out",
-          );
-          throw new HermesError(
-            "HERMES_TIMEOUT",
-            "Hermes 流式接口连接超时。",
-            504,
-            { url, timeoutMs: connectTimeoutMs },
-          );
+          logger?.warn({ url, connectTimeoutMs }, "Hermes SSE connect timed out");
+          throw new HermesError("HERMES_TIMEOUT", "Hermes 流式接口连接超时。", 504, {
+            url,
+            timeoutMs: connectTimeoutMs,
+          });
         }
         logger?.error({ err, url }, "Hermes SSE connect failed");
         throw new HermesError(
@@ -331,9 +312,7 @@ export function createHermesHttpClient(): HermesHttpClient {
         );
       }
 
-      const reader = response.body
-        .pipeThrough(new TextDecoderStream())
-        .getReader();
+      const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
 
       let buffer = "";
       try {
@@ -355,12 +334,9 @@ export function createHermesHttpClient(): HermesHttpClient {
         }
       } catch (err) {
         logger?.error({ err, url }, "Hermes SSE read error");
-        throw new HermesError(
-          "HERMES_AGENT_ERROR",
-          "Hermes 流式响应读取失败。",
-          502,
-          { cause: (err as Error)?.message },
-        );
+        throw new HermesError("HERMES_AGENT_ERROR", "Hermes 流式响应读取失败。", 502, {
+          cause: (err as Error)?.message,
+        });
       } finally {
         try {
           await reader.cancel();
@@ -402,10 +378,7 @@ export function createHermesHttpClient(): HermesHttpClient {
    * metadata 里的 commandId / sessionId / context 是我们自己要的溯源信息，
    * Hermes 会忽略未知字段。
    */
-  async function createRun(
-    input: HermesMessageInput,
-    logger?: Logger,
-  ): Promise<{ runId: string }> {
+  async function createRun(input: HermesMessageInput, logger?: Logger): Promise<{ runId: string }> {
     const body: Record<string, unknown> = {
       input: input.message,
       model: "hermes-agent",
@@ -426,12 +399,7 @@ export function createHermesHttpClient(): HermesHttpClient {
     }>("/v1/runs", body, logger);
     const runId = resp.run_id ?? resp.runId;
     if (!runId) {
-      throw new HermesError(
-        "HERMES_AGENT_ERROR",
-        "Hermes 未返回 run_id。",
-        502,
-        { resp },
-      );
+      throw new HermesError("HERMES_AGENT_ERROR", "Hermes 未返回 run_id。", 502, { resp });
     }
     return { runId };
   }
@@ -460,9 +428,7 @@ export function createHermesHttpClient(): HermesHttpClient {
           case "run.failed":
             status = "failed";
             errorMsg =
-              typeof raw.data.error === "string"
-                ? raw.data.error
-                : "Hermes Agent 执行失败。";
+              typeof raw.data.error === "string" ? raw.data.error : "Hermes Agent 执行失败。";
             break;
           case "run.cancelled":
             status = "cancelled";
@@ -475,21 +441,15 @@ export function createHermesHttpClient(): HermesHttpClient {
       }
 
       if (!status) {
-        throw new HermesError(
-          "HERMES_AGENT_ERROR",
-          "Hermes 流已结束但未返回终态事件。",
-          502,
-          { runId },
-        );
+        throw new HermesError("HERMES_AGENT_ERROR", "Hermes 流已结束但未返回终态事件。", 502, {
+          runId,
+        });
       }
 
       if (status === "failed") {
-        throw new HermesError(
-          "HERMES_AGENT_ERROR",
-          errorMsg ?? "Hermes Agent 执行失败。",
-          502,
-          { runId },
-        );
+        throw new HermesError("HERMES_AGENT_ERROR", errorMsg ?? "Hermes Agent 执行失败。", 502, {
+          runId,
+        });
       }
 
       const result: HermesMessageResult = {
@@ -520,10 +480,7 @@ export function createHermesHttpClient(): HermesHttpClient {
     },
 
     async notifyCancel(input, logger) {
-      const url = joinUrl(
-        baseUrl,
-        `/v1/runs/${encodeURIComponent(input.runId)}/stop`,
-      );
+      const url = joinUrl(baseUrl, `/v1/runs/${encodeURIComponent(input.runId)}/stop`);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3_000);
       try {
@@ -538,10 +495,7 @@ export function createHermesHttpClient(): HermesHttpClient {
         });
         clearTimeout(timer);
         if (!res.ok) {
-          logger?.warn(
-            { url, status: res.status },
-            "Hermes stop notification returned non-2xx",
-          );
+          logger?.warn({ url, status: res.status }, "Hermes stop notification returned non-2xx");
           return false;
         }
         return true;

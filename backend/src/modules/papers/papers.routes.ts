@@ -48,16 +48,12 @@ papersRouter.delete("/:paperId", async (c) => {
   return c.body(null, 204);
 });
 
-papersRouter.patch(
-  "/:paperId/analysis",
-  zv("json", upsertAnalysisSchema),
-  async (c) => {
-    const paperId = c.req.param("paperId");
-    const body = c.req.valid("json");
-    const analysis = await service.upsertAnalysis(paperId, body);
-    return ok(c, { analysis });
-  },
-);
+papersRouter.patch("/:paperId/analysis", zv("json", upsertAnalysisSchema), async (c) => {
+  const paperId = c.req.param("paperId");
+  const body = c.req.valid("json");
+  const analysis = await service.upsertAnalysis(paperId, body);
+  return ok(c, { analysis });
+});
 
 /**
  * POST /api/papers/:paperId/pdf
@@ -75,9 +71,7 @@ papersRouter.post("/:paperId/pdf", async (c) => {
 
   const contentType = c.req.header("content-type") ?? "";
   if (!contentType.toLowerCase().includes("multipart/form-data")) {
-    throw new ValidationError(
-      "Expected multipart/form-data request with a 'file' part",
-    );
+    throw new ValidationError("Expected multipart/form-data request with a 'file' part");
   }
 
   const form = await c.req.parseBody();

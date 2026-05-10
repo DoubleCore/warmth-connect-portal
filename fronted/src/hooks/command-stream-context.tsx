@@ -16,23 +16,21 @@ import { useCommandStream, type UseCommandStreamReturn } from "@/hooks/use-comma
 const MainCommandStreamContext = createContext<UseCommandStreamReturn | null>(null);
 
 export function MainCommandStreamProvider({ children }: { children: ReactNode }) {
-    const command = useCommandStream({
-        entry: "home",
-        baseContext: { currentPage: "home" },
-    });
-    return (
-        <MainCommandStreamContext.Provider value={command}>
-            {children}
-        </MainCommandStreamContext.Provider>
-    );
+  const command = useCommandStream({
+    entry: "home",
+    baseContext: { currentPage: "home" },
+  });
+  return (
+    <MainCommandStreamContext.Provider value={command}>
+      {children}
+    </MainCommandStreamContext.Provider>
+  );
 }
 
 export function useMainCommandStream(): UseCommandStreamReturn {
-    const ctx = useContext(MainCommandStreamContext);
-    if (!ctx) {
-        throw new Error(
-            "useMainCommandStream must be used inside <MainCommandStreamProvider>",
-        );
-    }
-    return ctx;
+  const ctx = useContext(MainCommandStreamContext);
+  if (!ctx) {
+    throw new Error("useMainCommandStream must be used inside <MainCommandStreamProvider>");
+  }
+  return ctx;
 }
