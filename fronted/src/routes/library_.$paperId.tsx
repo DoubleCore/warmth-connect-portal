@@ -14,6 +14,7 @@ import {
   FlagTriangleRight,
   StickyNote,
   MessageSquare,
+  Github,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { PdfUploadButton } from "@/components/hermes/PdfUploadButton";
@@ -114,6 +115,18 @@ function PaperDetailPage() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {paper.repoUrl && (
+                <a
+                  href={paper.repoUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={t("paper.repoUrlOpen")}
+                  className="inline-flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-3 text-sm font-medium text-foreground transition-colors hover:bg-secondary"
+                >
+                  <Github className="h-4 w-4" aria-hidden />
+                  {t("paper.repoUrl")}
+                </a>
+              )}
               <PdfUploadButton paperId={paper.id} />
               <a
                 href={getPaperPdfUrl(paper.id)}

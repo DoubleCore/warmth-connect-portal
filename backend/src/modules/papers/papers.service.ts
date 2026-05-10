@@ -30,6 +30,7 @@ function toListItem(row: PaperRow): PaperListItemDto {
     publishedYear: row.publishedYear,
     paperUrl: row.paperUrl,
     pdfUrl: row.pdfUrl,
+    repoUrl: row.repoUrl,
   };
 }
 

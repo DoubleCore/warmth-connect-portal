@@ -15,6 +15,8 @@ export type PaperListItem = {
   publishedYear: number | null;
   paperUrl: string | null;
   pdfUrl: string | null;
+  /** Code repository URL (GitHub/GitLab), written by paper-code-finder / repo-backfill skills. */
+  repoUrl: string | null;
 };
 
 export type PaperAnalysis = {

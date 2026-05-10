@@ -43,6 +43,13 @@
       "when": 1778384900000,
       "tag": "0005_hermes_run_id",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778673600000,
+      "tag": "0006_paper_repo_and_training_notes",
+      "breakpoints": true
     }
   ]
 }

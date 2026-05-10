@@ -20,6 +20,7 @@ function toDto(row: ReproductionJoinedRow): ReproductionRecordDto {
     progress: r.progress,
     resultSummary: r.resultSummary,
     artifactUrl: r.artifactUrl,
+    trainingNotes: r.trainingNotes,
     startedAt: r.startedAt,
     finishedAt: r.finishedAt,
   };

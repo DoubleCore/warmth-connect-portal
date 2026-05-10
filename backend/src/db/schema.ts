@@ -28,6 +28,8 @@ export const papers = sqliteTable(
     publishedYear: integer("published_year"),
     paperUrl: text("paper_url"),
     pdfUrl: text("pdf_url"),
+    // 代码仓库 URL（如 GitHub/GitLab），由 paper-code-finder / repo-backfill 回写
+    repoUrl: text("repo_url"),
     // 本地 PDF 文件的相对路径（存在则 /api/papers/:id/pdf 从本地读取）
     pdfStoragePath: text("pdf_storage_path"),
     createdAt: text("created_at")
@@ -146,6 +148,8 @@ export const paperReproductionRecords = sqliteTable(
     progress: integer("progress").notNull().default(0),
     resultSummary: text("result_summary"),
     artifactUrl: text("artifact_url"),
+    // 训练修改记录（超参数调整、数据清洗、改动点等自由文本），由 reproduction-tracker skill 回写
+    trainingNotes: text("training_notes"),
     startedAt: text("started_at"),
     finishedAt: text("finished_at"),
     createdAt: text("created_at")

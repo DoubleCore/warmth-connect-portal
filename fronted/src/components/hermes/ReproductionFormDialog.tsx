@@ -56,6 +56,7 @@ function makeSchema(t: ReturnType<typeof useI18n>["t"]) {
       .min(0, t("workspace.record.progressRange"))
       .max(100, t("workspace.record.progressRange")),
     resultSummary: z.string(),
+    trainingNotes: z.string(),
     artifactUrl: z
       .string()
       .trim()
@@ -94,6 +95,7 @@ export function ReproductionFormDialog({
             status: record.status,
             progress: record.progress,
             resultSummary: record.resultSummary ?? "",
+            trainingNotes: record.trainingNotes ?? "",
             artifactUrl: record.artifactUrl ?? "",
             startedAt: toDatetimeLocal(record.startedAt),
             finishedAt: toDatetimeLocal(record.finishedAt),
@@ -112,6 +114,7 @@ export function ReproductionFormDialog({
         status: record.status,
         progress: record.progress,
         resultSummary: record.resultSummary ?? "",
+        trainingNotes: record.trainingNotes ?? "",
         artifactUrl: record.artifactUrl ?? "",
         startedAt: toDatetimeLocal(record.startedAt),
         finishedAt: toDatetimeLocal(record.finishedAt),
@@ -173,6 +176,7 @@ export function ReproductionFormDialog({
       status: values.status,
       progress: values.progress,
       resultSummary: values.resultSummary.trim() ? values.resultSummary : null,
+      trainingNotes: values.trainingNotes.trim() ? values.trainingNotes : null,
       artifactUrl: values.artifactUrl.trim() ? values.artifactUrl : null,
       startedAt: values.startedAt ? fromDatetimeLocal(values.startedAt) : null,
       finishedAt: values.finishedAt ? fromDatetimeLocal(values.finishedAt) : null,
@@ -334,6 +338,18 @@ export function ReproductionFormDialog({
             />
           </div>
 
+          <div className="space-y-1.5">
+            <Label htmlFor="record-training-notes">
+              {t("workspace.record.trainingNotesLabel")}
+            </Label>
+            <Textarea
+              id="record-training-notes"
+              rows={3}
+              placeholder={t("workspace.record.trainingNotesPlaceholder")}
+              {...form.register("trainingNotes")}
+            />
+          </div>
+
           {mutation.isError && (
             <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
               <div>{t("workspace.record.saveError", { message: errMsg(mutation.error) })}</div>
@@ -378,6 +394,7 @@ function blankDefaults(): FormValues {
     status: "not_started",
     progress: 0,
     resultSummary: "",
+    trainingNotes: "",
     artifactUrl: "",
     startedAt: "",
     finishedAt: "",

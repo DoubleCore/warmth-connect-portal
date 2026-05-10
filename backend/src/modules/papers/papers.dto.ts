@@ -20,6 +20,8 @@ export const createPaperSchema = z.object({
   publishedYear: z.number().int().nullish(),
   paperUrl: z.string().url().nullish(),
   pdfUrl: z.string().url().nullish(),
+  /** 代码仓库 URL，常由 paper-code-finder / repo-backfill skill 写入 */
+  repoUrl: z.string().url().nullish(),
 });
 export type CreatePaperInput = z.infer<typeof createPaperSchema>;
 
@@ -34,6 +36,8 @@ export const updatePaperSchema = z
     publishedYear: z.number().int().nullish(),
     paperUrl: z.string().url().nullish(),
     pdfUrl: z.string().url().nullish(),
+    /** 代码仓库 URL，由 paper-code-finder / repo-backfill skill 回写 */
+    repoUrl: z.string().url().nullish(),
     /** 本地 PDF 相对路径（相对 PDF_STORAGE_DIR），一般由上传接口写入，但也接受直接 PATCH */
     pdfStoragePath: z.string().nullish(),
   })
@@ -61,6 +65,7 @@ export type PaperListItemDto = {
   publishedYear: number | null;
   paperUrl: string | null;
   pdfUrl: string | null;
+  repoUrl: string | null;
 };
 
 /** 返回给前端的详情 */

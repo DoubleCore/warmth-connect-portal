@@ -71,6 +71,7 @@ export async function insertPaper(input: CreatePaperInput): Promise<PaperRow> {
       publishedYear: input.publishedYear ?? null,
       paperUrl: input.paperUrl ?? null,
       pdfUrl: input.pdfUrl ?? null,
+      repoUrl: input.repoUrl ?? null,
     })
     .returning();
   if (!row) throw new Error("Failed to insert paper");
@@ -91,6 +92,7 @@ export async function updatePaper(
   if (input.publishedYear !== undefined) patch.publishedYear = input.publishedYear ?? null;
   if (input.paperUrl !== undefined) patch.paperUrl = input.paperUrl ?? null;
   if (input.pdfUrl !== undefined) patch.pdfUrl = input.pdfUrl ?? null;
+  if (input.repoUrl !== undefined) patch.repoUrl = input.repoUrl ?? null;
   if (input.pdfStoragePath !== undefined) patch.pdfStoragePath = input.pdfStoragePath ?? null;
 
   const [row] = await db.update(papers).set(patch).where(eq(papers.id, id)).returning();

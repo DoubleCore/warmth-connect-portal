@@ -71,6 +71,7 @@ export async function insertRecord(
       progress: input.progress,
       resultSummary: input.resultSummary ?? null,
       artifactUrl: input.artifactUrl ?? null,
+      trainingNotes: input.trainingNotes ?? null,
       startedAt: input.startedAt ?? null,
       finishedAt: input.finishedAt ?? null,
     })
@@ -89,6 +90,7 @@ export async function updateRecord(
   if (input.progress !== undefined) patch.progress = input.progress;
   if (input.resultSummary !== undefined) patch.resultSummary = input.resultSummary ?? null;
   if (input.artifactUrl !== undefined) patch.artifactUrl = input.artifactUrl ?? null;
+  if (input.trainingNotes !== undefined) patch.trainingNotes = input.trainingNotes ?? null;
   if (input.startedAt !== undefined) patch.startedAt = input.startedAt ?? null;
   if (input.finishedAt !== undefined) patch.finishedAt = input.finishedAt ?? null;
 
