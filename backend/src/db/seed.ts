@@ -1,106 +1,76 @@
+import { and, eq } from "drizzle-orm";
 import { db } from "./client.js";
-import {
-  devices,
-  paperAnalysis,
-  paperReproductionRecords,
-  papers,
-  ragPapers,
-} from "./schema.js";
+import { devices, paperAnalysis, paperReproductionRecords, papers } from "./schema.js";
 import { logger } from "@/shared/logger.js";
 
-async function seed() {
-  await seedLegacyPapers();
-  await seedRagPapers();
-}
+/**
+ * Idempotent seed: each row is checked by a natural key (paper.title,
+ * device.name, reproduction record = (paperId, deviceId?)) before inserting.
+ * Running this script multiple times will top up any missing sample data
+ * without duplicating existing rows.
+ */
 
-async function seedLegacyPapers() {
-  const existing = await db.select({ id: papers.id }).from(papers).limit(1);
-  if (existing.length > 0) {
-    logger.info("Seed (papers) skipped: not empty");
-    return;
-  }
+type PaperSeed = {
+  title: string;
+  authors: string[];
+  abstract: string | null;
+  field: string | null;
+  source: string | null;
+  publishedYear: number | null;
+  paperUrl: string | null;
+  pdfUrl: string | null;
+  pdfStoragePath: string | null;
+  analysis: {
+    taskDefinition: string | null;
+    researchQuestions: string | null;
+    methodOverview: string | null;
+    metrics: string | null;
+    conclusion: string | null;
+    notes: string | null;
+  } | null;
+};
 
-  // ---------- papers with local PDFs (used to verify local streaming) ----------
-  const [paperAttention] = await db
-    .insert(papers)
-    .values({
-      title: "Attention Is All You Need",
-      authorsJson: JSON.stringify([
-        "Ashish Vaswani",
-        "Noam Shazeer",
-        "Niki Parmar",
-        "Jakob Uszkoreit",
-        "Llion Jones",
-        "Aidan N. Gomez",
-        "Lukasz Kaiser",
-        "Illia Polosukhin",
-      ]),
-      abstract:
-        "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.",
-      field: "Transformer",
-      source: "NeurIPS",
-      publishedYear: 2017,
-      paperUrl: "https://papers.nips.cc/paper/7181-attention-is-all-you-need",
-      pdfUrl: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf",
-      pdfStoragePath: "NIPS-2017-attention-is-all-you-need-Paper.pdf",
-    })
-    .returning();
+type DeviceSeed = {
+  name: string;
+  deviceType: string | null;
+  status: "idle" | "running" | "offline" | "error";
+  location: string | null;
+  description: string | null;
+};
 
-  const [paperConditionalMemory] = await db
-    .insert(papers)
-    .values({
-      title: "Conditional Memory via Scalable Lookup",
-      // Authors & metadata not verified from an authoritative source; kept as
-      // placeholder so the local-PDF path can be exercised end-to-end.
-      authorsJson: JSON.stringify([]),
-      abstract: "Local-only sample; metadata not yet filled in.",
-      field: null,
-      source: null,
-      publishedYear: null,
-      paperUrl: null,
-      pdfUrl: null,
-      pdfStoragePath: "Conditional Memory via Scalable Lookup.pdf",
-    })
-    .returning();
+type ReproductionSeed = {
+  paperTitle: string;
+  deviceName: string | null;
+  status: "not_started" | "running" | "success" | "failed" | "paused";
+  progress: number;
+  resultSummary: string | null;
+  artifactUrl: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+};
 
-  // ---------- papers without local PDFs (used to verify 302 redirect path) ----------
-  const [paperCoT] = await db
-    .insert(papers)
-    .values({
-      title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
-      authorsJson: JSON.stringify(["Jason Wei", "Xuezhi Wang", "Dale Schuurmans"]),
-      abstract:
-        "We explore how chain-of-thought prompting can improve the reasoning ability of large language models...",
-      field: "LLM Reasoning",
-      source: "NeurIPS",
-      publishedYear: 2022,
-      paperUrl: "https://arxiv.org/abs/2201.11903",
-      pdfUrl: "https://arxiv.org/pdf/2201.11903.pdf",
-    })
-    .returning();
-
-  const [paperRag] = await db
-    .insert(papers)
-    .values({
-      title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
-      authorsJson: JSON.stringify(["Patrick Lewis", "Ethan Perez", "Aleksandra Piktus"]),
-      abstract:
-        "We introduce RAG models, a general-purpose fine-tuning recipe that combines pre-trained parametric and non-parametric memory...",
-      field: "RAG",
-      source: "arXiv",
-      publishedYear: 2020,
-      paperUrl: "https://arxiv.org/abs/2005.11401",
-      pdfUrl: "https://arxiv.org/pdf/2005.11401.pdf",
-    })
-    .returning();
-
-  if (!paperAttention || !paperConditionalMemory || !paperCoT || !paperRag) {
-    throw new Error("Seed failed: could not insert papers");
-  }
-
-  await db.insert(paperAnalysis).values([
-    {
-      paperId: paperAttention.id,
+const paperSeeds: PaperSeed[] = [
+  {
+    title: "Attention Is All You Need",
+    authors: [
+      "Ashish Vaswani",
+      "Noam Shazeer",
+      "Niki Parmar",
+      "Jakob Uszkoreit",
+      "Llion Jones",
+      "Aidan N. Gomez",
+      "Lukasz Kaiser",
+      "Illia Polosukhin",
+    ],
+    abstract:
+      "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.",
+    field: "Transformer",
+    source: "NeurIPS",
+    publishedYear: 2017,
+    paperUrl: "https://papers.nips.cc/paper/7181-attention-is-all-you-need",
+    pdfUrl: "https://papers.nips.cc/paper/7181-attention-is-all-you-need.pdf",
+    pdfStoragePath: "NIPS-2017-attention-is-all-you-need-Paper.pdf",
+    analysis: {
       taskDefinition: "Sequence transduction (machine translation, parsing).",
       researchQuestions:
         "Can attention-only architectures match or outperform recurrent/convolutional models?",
@@ -111,8 +81,31 @@ async function seedLegacyPapers() {
         "The Transformer achieves SOTA translation quality with significantly less training time.",
       notes: null,
     },
-    {
-      paperId: paperCoT.id,
+  },
+  {
+    title: "Conditional Memory via Scalable Lookup",
+    authors: [],
+    abstract: "Local-only sample; metadata not yet filled in.",
+    field: null,
+    source: null,
+    publishedYear: null,
+    paperUrl: null,
+    pdfUrl: null,
+    pdfStoragePath: "Conditional Memory via Scalable Lookup.pdf",
+    analysis: null,
+  },
+  {
+    title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+    authors: ["Jason Wei", "Xuezhi Wang", "Dale Schuurmans"],
+    abstract:
+      "We explore how chain-of-thought prompting can improve the reasoning ability of large language models...",
+    field: "LLM Reasoning",
+    source: "NeurIPS",
+    publishedYear: 2022,
+    paperUrl: "https://arxiv.org/abs/2201.11903",
+    pdfUrl: "https://arxiv.org/pdf/2201.11903.pdf",
+    pdfStoragePath: null,
+    analysis: {
       taskDefinition: "Improve multi-step reasoning in LLMs via prompting.",
       researchQuestions: "Can intermediate reasoning steps boost final answer accuracy?",
       methodOverview: "Chain-of-thought (CoT) prompting with few-shot examples.",
@@ -121,8 +114,19 @@ async function seedLegacyPapers() {
         "CoT prompting substantially improves reasoning on arithmetic and commonsense tasks.",
       notes: null,
     },
-    {
-      paperId: paperRag.id,
+  },
+  {
+    title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    authors: ["Patrick Lewis", "Ethan Perez", "Aleksandra Piktus"],
+    abstract:
+      "We introduce RAG models, a general-purpose fine-tuning recipe that combines pre-trained parametric and non-parametric memory...",
+    field: "RAG",
+    source: "arXiv",
+    publishedYear: 2020,
+    paperUrl: "https://arxiv.org/abs/2005.11401",
+    pdfUrl: "https://arxiv.org/pdf/2005.11401.pdf",
+    pdfStoragePath: null,
+    analysis: {
       taskDefinition: "Knowledge-intensive QA and generation with external retrieval.",
       researchQuestions: "Can retrieval+generation outperform closed-book LMs on KI tasks?",
       methodOverview: "DPR retriever + BART generator, jointly fine-tuned.",
@@ -130,125 +134,206 @@ async function seedLegacyPapers() {
       conclusion: "RAG outperforms parametric-only and extractive baselines.",
       notes: null,
     },
-  ]);
+  },
+];
 
-  const [device] = await db
-    .insert(devices)
-    .values({
-      name: "GPU-Server-01",
-      deviceType: "GPU Server",
-      status: "idle",
-      location: "Lab A",
-      description: "A100 80G x 4",
-    })
-    .returning();
-  if (!device) throw new Error("Seed failed: could not insert device");
+const deviceSeeds: DeviceSeed[] = [
+  {
+    name: "GPU-Server-01",
+    deviceType: "GPU Server",
+    status: "idle",
+    location: "Lab A",
+    description: "A100 80G x 4",
+  },
+  {
+    name: "GPU-Server-02",
+    deviceType: "GPU Server",
+    status: "running",
+    location: "Lab A",
+    description: "H100 80G x 8",
+  },
+  {
+    name: "Dev-Workstation",
+    deviceType: "Workstation",
+    status: "idle",
+    location: "Lab B",
+    description: "RTX 4090, shared dev box",
+  },
+  {
+    name: "Edge-Node-01",
+    deviceType: "Edge",
+    status: "offline",
+    location: "Remote",
+    description: "Jetson Orin cluster, currently offline for maintenance",
+  },
+];
 
-  await db.insert(paperReproductionRecords).values({
-    paperId: paperAttention.id,
-    deviceId: device.id,
+const reproductionSeeds: ReproductionSeed[] = [
+  {
+    paperTitle: "Attention Is All You Need",
+    deviceName: "GPU-Server-01",
     status: "running",
     progress: 45,
     resultSummary: null,
     artifactUrl: null,
-    startedAt: new Date().toISOString(),
-  });
+    startedAt: hoursAgoIso(6),
+    finishedAt: null,
+  },
+  {
+    paperTitle: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
+    deviceName: "GPU-Server-02",
+    status: "success",
+    progress: 100,
+    resultSummary: "Replicated GSM8K CoT accuracy within 1.2 points of the paper.",
+    artifactUrl: "https://example.com/artifacts/cot-replication.zip",
+    startedAt: hoursAgoIso(30),
+    finishedAt: hoursAgoIso(26),
+  },
+  {
+    paperTitle: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
+    deviceName: null,
+    status: "not_started",
+    progress: 0,
+    resultSummary: null,
+    artifactUrl: null,
+    startedAt: null,
+    finishedAt: null,
+  },
+];
 
-  logger.info("Seed (papers) completed");
+function hoursAgoIso(hours: number): string {
+  return new Date(Date.now() - hours * 3600 * 1000).toISOString();
 }
 
-/**
- * RAG 知识库种子。
- *
- * 这组数据独立于 papers 表，专为 /search FTS5 检索服务。title + abstract 都选
- * 前端 "Recent" 芯片能直接命中的主题（Attention / MoE / KV cache），方便
- * 冒烟验证 "点击 recent → 返回结果" 这一最小闭环。
- */
-async function seedRagPapers() {
-  const existing = await db.select({ id: ragPapers.id }).from(ragPapers).limit(1);
-  if (existing.length > 0) {
-    logger.info("Seed (rag_papers) skipped: not empty");
-    return;
+async function upsertPapers() {
+  const titleToId = new Map<string, string>();
+  for (const p of paperSeeds) {
+    const existing = await db.select().from(papers).where(eq(papers.title, p.title)).limit(1);
+    let id: string;
+    if (existing.length > 0) {
+      id = existing[0]!.id;
+      logger.info({ title: p.title, id }, "paper already exists, skipping insert");
+    } else {
+      const [inserted] = await db
+        .insert(papers)
+        .values({
+          title: p.title,
+          authorsJson: JSON.stringify(p.authors),
+          abstract: p.abstract,
+          field: p.field,
+          source: p.source,
+          publishedYear: p.publishedYear,
+          paperUrl: p.paperUrl,
+          pdfUrl: p.pdfUrl,
+          pdfStoragePath: p.pdfStoragePath,
+        })
+        .returning({ id: papers.id });
+      if (!inserted) throw new Error(`Failed to insert paper "${p.title}"`);
+      id = inserted.id;
+      logger.info({ title: p.title, id }, "inserted paper");
+    }
+    titleToId.set(p.title, id);
+
+    if (p.analysis) {
+      const hasAnalysis = await db
+        .select({ id: paperAnalysis.id })
+        .from(paperAnalysis)
+        .where(eq(paperAnalysis.paperId, id))
+        .limit(1);
+      if (hasAnalysis.length === 0) {
+        await db.insert(paperAnalysis).values({ paperId: id, ...p.analysis });
+        logger.info({ title: p.title }, "inserted analysis");
+      }
+    }
   }
+  return titleToId;
+}
 
-  await db.insert(ragPapers).values([
-    {
-      title: "Attention Is All You Need",
-      authorsJson: JSON.stringify([
-        "Ashish Vaswani",
-        "Noam Shazeer",
-        "Niki Parmar",
-      ]),
-      venue: "NeurIPS 2017",
-      abstract:
-        "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely.",
-    },
-    {
-      title: "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness",
-      authorsJson: JSON.stringify(["Tri Dao", "Daniel Y. Fu", "Stefano Ermon"]),
-      venue: "NeurIPS 2022",
-      abstract:
-        "We propose FlashAttention, a new attention algorithm that computes exact attention with far fewer memory accesses. We avoid reading and writing the attention matrix to and from HBM. This requires computing the softmax reduction without access to the whole input, and not storing the large intermediate attention matrix for the backward pass.",
-    },
-    {
-      title: "Self-Attention with Relative Position Representations and Theoretical Bounds",
-      authorsJson: JSON.stringify(["Peter Shaw", "Jakob Uszkoreit"]),
-      venue: "NAACL 2018",
-      abstract:
-        "We present an extension of self-attention that incorporates relative position representations and derive bounds on the attention mechanism's expressiveness. Our analysis yields tighter bounds on the number of heads and the hidden dimension needed to approximate arbitrary permutation equivariant functions.",
-    },
-    {
-      title: "GQA: Training Generalized Multi-Query Attention",
-      authorsJson: JSON.stringify(["Joshua Ainslie", "James Lee-Thorp"]),
-      venue: "ArXiv 2023",
-      abstract:
-        "Multi-query attention (MQA) reduces decoder memory bandwidth by sharing key and value heads. We propose grouped-query attention (GQA), an interpolation of multi-head and multi-query attention with a single key and value head per group, achieving quality close to MHA with speed comparable to MQA.",
-    },
-    {
-      title: "Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity",
-      authorsJson: JSON.stringify(["William Fedus", "Barret Zoph", "Noam Shazeer"]),
-      venue: "JMLR 2022",
-      abstract:
-        "In deep learning, models typically reuse the same parameters for all inputs. Mixture of Experts (MoE) defies this and instead selects different parameters for each incoming example. The Switch Transformer simplifies MoE routing by selecting a single expert per token, stabilizing training and dramatically reducing communication cost.",
-    },
-    {
-      title: "Mixture-of-Experts with Expert Choice Routing",
-      authorsJson: JSON.stringify(["Yanqi Zhou", "Tao Lei"]),
-      venue: "NeurIPS 2022",
-      abstract:
-        "We propose a heterogeneous mixture-of-experts model where experts choose tokens rather than tokens choosing experts, leading to perfect load balance and improved routing stability. This addresses the MoE routing stability problem and achieves better downstream task performance under the same compute budget.",
-    },
-    {
-      title: "H2O: Heavy-Hitter Oracle for Efficient Generative Inference of Large Language Models",
-      authorsJson: JSON.stringify(["Zhenyu Zhang", "Ying Sheng", "Tianyi Zhou"]),
-      venue: "NeurIPS 2023",
-      abstract:
-        "Deploying large language models at inference time is bottlenecked by KV cache size. We propose Heavy-Hitter Oracle, a KV cache eviction policy that dynamically retains a balance of recent and heavy-hitter tokens. H2O enables significant KV cache compression with minimal quality loss.",
-    },
-    {
-      title: "StreamingLLM: Efficient Streaming Language Models with Attention Sinks",
-      authorsJson: JSON.stringify(["Guangxuan Xiao", "Yuandong Tian"]),
-      venue: "ICLR 2024",
-      abstract:
-        "We enable LLMs to generalize to infinite sequence length without fine-tuning by preserving the first few attention sink tokens together with a sliding window KV cache. StreamingLLM combines attention sinks with KV cache compression and achieves up to 22x speedup over recomputation baselines.",
-    },
-    {
-      title: "Retrieval-Augmented Generation for Knowledge-Intensive NLP Tasks",
-      authorsJson: JSON.stringify(["Patrick Lewis", "Ethan Perez", "Aleksandra Piktus"]),
-      venue: "NeurIPS 2020",
-      abstract:
-        "We introduce RAG models, a general-purpose fine-tuning recipe that combines pre-trained parametric and non-parametric memory. Our RAG framework combines a dense vector retriever with a seq2seq generator and outperforms parametric-only and extractive baselines on open-domain question answering.",
-    },
-    {
-      title: "Chain-of-Thought Prompting Elicits Reasoning in Large Language Models",
-      authorsJson: JSON.stringify(["Jason Wei", "Xuezhi Wang", "Dale Schuurmans"]),
-      venue: "NeurIPS 2022",
-      abstract:
-        "We explore how chain-of-thought prompting, which provides intermediate reasoning steps as part of few-shot exemplars, can improve the ability of large language models to perform complex reasoning. Chain-of-thought prompting substantially improves performance on arithmetic, commonsense, and symbolic reasoning benchmarks.",
-    },
-  ]);
+async function upsertDevices() {
+  const nameToId = new Map<string, string>();
+  for (const d of deviceSeeds) {
+    const existing = await db.select().from(devices).where(eq(devices.name, d.name)).limit(1);
+    let id: string;
+    if (existing.length > 0) {
+      id = existing[0]!.id;
+      logger.info({ name: d.name, id }, "device already exists, skipping insert");
+    } else {
+      const [inserted] = await db
+        .insert(devices)
+        .values({
+          name: d.name,
+          deviceType: d.deviceType,
+          status: d.status,
+          location: d.location,
+          description: d.description,
+        })
+        .returning({ id: devices.id });
+      if (!inserted) throw new Error(`Failed to insert device "${d.name}"`);
+      id = inserted.id;
+      logger.info({ name: d.name, id }, "inserted device");
+    }
+    nameToId.set(d.name, id);
+  }
+  return nameToId;
+}
 
-  logger.info("Seed (rag_papers) completed");
+async function upsertReproductionRecords(
+  titleToId: Map<string, string>,
+  nameToId: Map<string, string>,
+) {
+  for (const r of reproductionSeeds) {
+    const paperId = titleToId.get(r.paperTitle);
+    if (!paperId) {
+      logger.warn({ paperTitle: r.paperTitle }, "skipping record: paper not seeded");
+      continue;
+    }
+    const deviceId = r.deviceName ? (nameToId.get(r.deviceName) ?? null) : null;
+
+    // Natural key: paperId + (deviceId or null). If a record already exists
+    // for this combination, we leave it alone to preserve any manual edits.
+    const whereExisting = deviceId
+      ? and(
+          eq(paperReproductionRecords.paperId, paperId),
+          eq(paperReproductionRecords.deviceId, deviceId),
+        )
+      : eq(paperReproductionRecords.paperId, paperId);
+
+    const existing = await db
+      .select({ id: paperReproductionRecords.id })
+      .from(paperReproductionRecords)
+      .where(whereExisting)
+      .limit(1);
+
+    if (existing.length > 0) {
+      logger.info(
+        { paperTitle: r.paperTitle, deviceName: r.deviceName },
+        "reproduction record already exists, skipping",
+      );
+      continue;
+    }
+
+    await db.insert(paperReproductionRecords).values({
+      paperId,
+      deviceId,
+      status: r.status,
+      progress: r.progress,
+      resultSummary: r.resultSummary,
+      artifactUrl: r.artifactUrl,
+      startedAt: r.startedAt,
+      finishedAt: r.finishedAt,
+    });
+    logger.info(
+      { paperTitle: r.paperTitle, deviceName: r.deviceName, status: r.status },
+      "inserted reproduction record",
+    );
+  }
+}
+
+async function seed() {
+  const titleToId = await upsertPapers();
+  const nameToId = await upsertDevices();
+  await upsertReproductionRecords(titleToId, nameToId);
+  logger.info("Seed completed successfully");
 }
 
 seed()

@@ -14,7 +14,7 @@ import { cn } from "@/lib/utils";
 import { useDebounce } from "@/hooks/use-debounce";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { listPapers } from "@/api/papers";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, isNetworkError } from "@/lib/api-client";
 import type { PaperListItem } from "@/types/paper";
 
 export const Route = createFileRoute("/library")({
@@ -100,7 +100,7 @@ function LibraryPage() {
 
           {isLoading ? (
             <LoadingRow text={t("library.loading")} />
-          ) : isError ? (
+          ) : isError && !isNetworkError(error) ? (
             <ErrorRow
               text={t("library.loadError", { message: getErrorMessage(error) })}
               retryLabel={t("library.retry")}

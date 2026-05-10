@@ -20,8 +20,7 @@ export function TopBar({ active = "Command" }: { active?: TopBarTab }) {
   const { t } = useI18n();
   return (
     <header className="flex items-center justify-between border-b border-border px-8 py-5">
-      <h1 className="text-xl font-semibold tracking-tight">{t("topbar.heading")}</h1>
-      <nav className="flex items-center gap-8" aria-label={t("sidebar.primaryNavLabel")}>
+      <nav className="flex flex-1 items-center justify-center gap-8" aria-label={t("sidebar.primaryNavLabel")}>
         {tabs.map((entry) => {
           const isActive = entry.tab === active;
           const cls = cn(

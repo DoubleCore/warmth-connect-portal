@@ -51,15 +51,15 @@ export function Sidebar() {
         </div>
       </div>
 
-      <button
-        type="button"
+      <Link
+        to="/"
         aria-label={t("sidebar.newResearch")}
         className="mt-8 flex items-center justify-center gap-2 rounded-xl py-3 font-medium text-primary-foreground transition-transform hover:scale-[1.02] active:scale-[0.98]"
         style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
       >
         <Plus className="h-4 w-4" aria-hidden />
         {t("sidebar.newResearch")}
-      </button>
+      </Link>
 
       <nav className="mt-6 flex flex-col gap-1" aria-label={t("sidebar.primaryNavLabel")}>
         {nav.map(({ to, labelKey, icon: Icon }) => {

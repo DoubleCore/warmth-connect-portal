@@ -28,7 +28,7 @@ const detailQuery = (paperId: string) => ({
   queryFn: () => getPaperDetail(paperId),
 });
 
-export const Route = createFileRoute("/library/$paperId")({
+export const Route = createFileRoute("/library_/$paperId")({
   loader: async ({ params, context }) => {
     try {
       await context.queryClient.ensureQueryData(detailQuery(params.paperId));

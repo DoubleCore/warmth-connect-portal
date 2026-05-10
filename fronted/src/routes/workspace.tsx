@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { listDevices } from "@/api/devices";
 import { listReproductionRecords } from "@/api/reproduction";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, isNetworkError } from "@/lib/api-client";
 import type { Device, DeviceStatus } from "@/types/device";
 import type { ReproductionRecord, ReproductionStatus } from "@/types/reproduction";
 
@@ -94,7 +94,7 @@ function WorkspacePage() {
             </div>
             {devicesQuery.isLoading ? (
               <BlockMessage loading text={t("workspace.loading")} />
-            ) : devicesQuery.isError ? (
+            ) : devicesQuery.isError && !isNetworkError(devicesQuery.error) ? (
               <BlockMessage tone="error" text={t("workspace.loadError", { message: getErrorMessage(devicesQuery.error) })} />
             ) : devices.length === 0 ? (
               <BlockMessage text={t("workspace.empty")} />
@@ -121,7 +121,7 @@ function WorkspacePage() {
             </div>
             {recordsQuery.isLoading ? (
               <BlockMessage loading text={t("workspace.loading")} />
-            ) : recordsQuery.isError ? (
+            ) : recordsQuery.isError && !isNetworkError(recordsQuery.error) ? (
               <BlockMessage tone="error" text={t("workspace.loadError", { message: getErrorMessage(recordsQuery.error) })} />
             ) : records.length === 0 ? (
               <BlockMessage text={t("workspace.empty")} />

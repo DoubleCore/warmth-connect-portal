@@ -15,7 +15,7 @@ import { Route as SearchRouteImport } from './routes/search'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as LibraryPaperIdRouteImport } from './routes/library.$paperId'
+import { Route as LibraryPaperIdRouteImport } from './routes/library_.$paperId'
 
 const WorkspaceRoute = WorkspaceRouteImport.update({
   id: '/workspace',
@@ -48,15 +48,15 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const LibraryPaperIdRoute = LibraryPaperIdRouteImport.update({
-  id: '/$paperId',
-  path: '/$paperId',
-  getParentRoute: () => LibraryRoute,
+  id: '/library_/$paperId',
+  path: '/library/$paperId',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
-  '/library': typeof LibraryRouteWithChildren
+  '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
@@ -65,7 +65,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
-  '/library': typeof LibraryRouteWithChildren
+  '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
@@ -75,11 +75,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
-  '/library': typeof LibraryRouteWithChildren
+  '/library': typeof LibraryRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
-  '/library/$paperId': typeof LibraryPaperIdRoute
+  '/library_/$paperId': typeof LibraryPaperIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -108,16 +108,17 @@ export interface FileRouteTypes {
     | '/search'
     | '/settings'
     | '/workspace'
-    | '/library/$paperId'
+    | '/library_/$paperId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DocsRoute: typeof DocsRoute
-  LibraryRoute: typeof LibraryRouteWithChildren
+  LibraryRoute: typeof LibraryRoute
   SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
   WorkspaceRoute: typeof WorkspaceRoute
+  LibraryPaperIdRoute: typeof LibraryPaperIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -164,34 +165,24 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/library/$paperId': {
-      id: '/library/$paperId'
-      path: '/$paperId'
+    '/library_/$paperId': {
+      id: '/library_/$paperId'
+      path: '/library/$paperId'
       fullPath: '/library/$paperId'
       preLoaderRoute: typeof LibraryPaperIdRouteImport
-      parentRoute: typeof LibraryRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface LibraryRouteChildren {
-  LibraryPaperIdRoute: typeof LibraryPaperIdRoute
-}
-
-const LibraryRouteChildren: LibraryRouteChildren = {
-  LibraryPaperIdRoute: LibraryPaperIdRoute,
-}
-
-const LibraryRouteWithChildren =
-  LibraryRoute._addFileChildren(LibraryRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DocsRoute: DocsRoute,
-  LibraryRoute: LibraryRouteWithChildren,
+  LibraryRoute: LibraryRoute,
   SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
   WorkspaceRoute: WorkspaceRoute,
+  LibraryPaperIdRoute: LibraryPaperIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

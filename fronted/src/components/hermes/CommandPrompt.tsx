@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { MessageKey } from "@/lib/i18n/messages";
-import { ApiError } from "@/lib/api-client";
+import { ApiError, isNetworkError } from "@/lib/api-client";
 import { listPapers } from "@/api/papers";
 import { listReproductionRecords } from "@/api/reproduction";
 import type { PaperListItem } from "@/types/paper";
@@ -133,11 +133,21 @@ function RecentActivity() {
   });
 
   const isLoading = papersQuery.isLoading || recordsQuery.isLoading;
-  const isError = papersQuery.isError || recordsQuery.isError;
-  const errorObj = papersQuery.error ?? recordsQuery.error;
+  // Treat transport-level failures (backend offline, CORS blocked, etc.) the
+  // same as an empty dataset instead of showing a red error banner.
+  const papersErr = papersQuery.error;
+  const recordsErr = recordsQuery.error;
+  const hasNetworkErr =
+    (papersQuery.isError && isNetworkError(papersErr)) ||
+    (recordsQuery.isError && isNetworkError(recordsErr));
+  const hasRealError =
+    (papersQuery.isError && !isNetworkError(papersErr)) ||
+    (recordsQuery.isError && !isNetworkError(recordsErr));
+  const errorObj = (!isNetworkError(papersErr) && papersErr) || recordsErr;
 
   const papers = papersQuery.data?.items.slice(0, RECENT_PAPERS_LIMIT) ?? [];
   const records = recordsQuery.data?.items.slice(0, RECENT_RECORDS_LIMIT) ?? [];
+  const isEmpty = papers.length === 0 && records.length === 0;
 
   return (
     <section className="mt-12">
@@ -151,7 +161,7 @@ function RecentActivity() {
       <div className="mt-4 flex flex-col gap-3">
         {isLoading ? (
           <SkeletonRows count={3} />
-        ) : isError ? (
+        ) : hasRealError ? (
           <ErrorCard
             message={t("home.recent.loadError", { message: errMsg(errorObj) })}
             retryLabel={t("home.recent.retry")}
@@ -160,7 +170,7 @@ function RecentActivity() {
               void recordsQuery.refetch();
             }}
           />
-        ) : papers.length === 0 && records.length === 0 ? (
+        ) : isEmpty || hasNetworkErr ? (
           <EmptyCard text={t("home.recent.empty")} />
         ) : (
           <>

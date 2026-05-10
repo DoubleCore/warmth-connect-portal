@@ -32,7 +32,6 @@ export const messages = {
     "sidebar.support": "Support",
     "sidebar.primaryNavLabel": "Main",
 
-    "topbar.heading": "Hermes Research",
     "topbar.tabCommand": "Command",
     "topbar.tabLibrary": "Library",
     "topbar.tabWorkspace": "Workspace",
@@ -272,7 +271,6 @@ export const messages = {
     "sidebar.support": "支持",
     "sidebar.primaryNavLabel": "主导航",
 
-    "topbar.heading": "Hermes 研究台",
     "topbar.tabCommand": "指挥",
     "topbar.tabLibrary": "文献",
     "topbar.tabWorkspace": "工作台",

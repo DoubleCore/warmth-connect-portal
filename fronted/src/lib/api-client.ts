@@ -59,6 +59,16 @@ export function getApiBaseUrl(): string {
   return raw.replace(/\/$/, "") || "http://localhost:8787";
 }
 
+/**
+ * Returns true when the error came from a transport-level failure (no HTTP
+ * response reached us) rather than an actual API 4xx/5xx. UIs should treat
+ * this as "backend offline" and fall back to an empty state instead of
+ * showing a red error message.
+ */
+export function isNetworkError(err: unknown): boolean {
+  return err instanceof ApiError && err.code === "NETWORK_ERROR";
+}
+
 export type ApiFetchInit = Omit<RequestInit, "body"> & {
   /** When provided, will be JSON-stringified and Content-Type set automatically. */
   json?: unknown;
@@ -92,7 +102,18 @@ export async function apiFetch<T>(path: string, init: ApiFetchInit = {}): Promis
   }
 
   const url = buildUrl(path, query);
-  const res = await fetch(url, { ...rest, headers: finalHeaders, body });
+  let res: Response;
+  try {
+    res = await fetch(url, { ...rest, headers: finalHeaders, body });
+  } catch (err) {
+    // `fetch` rejects with a TypeError when the backend is unreachable, the
+    // user is offline, CORS preflight is blocked, etc. These are transport-level
+    // failures with no HTTP response at all — we surface them with status 0 so
+    // the UI can treat them as "backend offline" (empty state) instead of a
+    // real API error.
+    const message = err instanceof Error ? err.message : "Network request failed";
+    throw new ApiError(0, "NETWORK_ERROR", message);
+  }
 
   // 204 No Content — used by DELETE endpoints.
   if (res.status === 204) {
