@@ -39,17 +39,17 @@ import type {
 
 export type CommandTranscriptItem =
   | {
-      kind: "user";
-      id: string;
-      message: string;
-      createdAt: number;
-    }
+    kind: "user";
+    id: string;
+    message: string;
+    createdAt: number;
+  }
   | {
-      kind: "event";
-      id: string;
-      event: CommandStreamEvent;
-      createdAt: number;
-    };
+    kind: "event";
+    id: string;
+    event: CommandStreamEvent;
+    createdAt: number;
+  };
 
 export type ActiveConfirmation = {
   confirmationId: string;
@@ -75,6 +75,16 @@ export type UseCommandStreamReturn = {
   respondConfirmation: (action: ConfirmAction, payload?: Record<string, unknown>) => Promise<void>;
   /** 清空 transcript（保留 sessionId），回到 idle。 */
   reset: () => void;
+  /**
+   * 新建一条独立会话：在 reset 的基础上**同时**清掉 sessionId，让下一次 `run()`
+   * 重新向 Backend 注册 `POST /api/command/sessions`，走一条全新的 Hermes
+   * 会话上下文（后端不再把历史 turn 灌进去）。
+   *
+   * 适用场景：
+   *   - 已完成的研究会话，用户想开新话题，避免旧回答影响 LLM 推理
+   *   - 当前会话出错/上下文跑偏，用户想"重来"
+   */
+  newSession: () => void;
 };
 
 const TERMINAL_PHASES: ReadonlyArray<CommandRuntimePhase> = ["completed", "failed", "cancelled"];
@@ -256,15 +266,15 @@ export function useCommandStream(options?: {
           const fallback: CommandStreamEvent =
             resp.status === "failed"
               ? {
-                  type: "error",
-                  message: resp.error?.message ?? "command failed",
-                  ...(resp.error?.code !== undefined ? { code: resp.error.code } : {}),
-                }
+                type: "error",
+                message: resp.error?.message ?? "command failed",
+                ...(resp.error?.code !== undefined ? { code: resp.error.code } : {}),
+              }
               : {
-                  type: "final",
-                  ...(resp.message !== undefined ? { message: resp.message } : {}),
-                  result: resp.result ?? null,
-                };
+                type: "final",
+                ...(resp.message !== undefined ? { message: resp.message } : {}),
+                result: resp.result ?? null,
+              };
           appendEvent(resp.commandId, fallback);
           if (fallback.type === "final") {
             setPhase("completed");
@@ -337,6 +347,22 @@ export function useCommandStream(options?: {
     // 注意：不清 sessionIdRef，保持会话连续
   }, [closeStream]);
 
+  /**
+   * 等价于 reset() + 丢弃 sessionId。
+   * 下一次 run() 会重新 POST /api/command/sessions 创建新会话，
+   * Backend 侧的 conversation_history 也就从空开始。
+   */
+  const newSession = useCallback(() => {
+    closeStream();
+    setTranscript([]);
+    setCurrentCommandId(null);
+    setPendingConfirmation(null);
+    setError(null);
+    setPhase("idle");
+    seqRef.current = 0;
+    sessionIdRef.current = null;
+  }, [closeStream]);
+
   return {
     phase,
     transcript,
@@ -346,5 +372,6 @@ export function useCommandStream(options?: {
     run,
     respondConfirmation,
     reset,
+    newSession,
   };
 }
