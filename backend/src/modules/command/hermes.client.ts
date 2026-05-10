@@ -38,6 +38,21 @@ export type HermesMessageResult = {
   };
 };
 
+/**
+ * Hermes 流式接口（设计文档 §7.3）每一帧 SSE 事件的结构化表示。
+ * 事件名按设计文档 §9 已定义：thinking / agent_message / tool_start /
+ * tool_result / need_confirmation / final / error。data 部分是 JSON 对象。
+ *
+ * 对未知事件类型，client 仍然产出 `HermesRawEvent`，由上层 mapper 决定忽略还是透传。
+ */
+export type HermesRawEvent = {
+  event: string;
+  /** SSE data 字段解析后的 JSON；若 Hermes 发送非 JSON 数据则退化为 { raw: string } */
+  data: Record<string, unknown>;
+  /** SSE id 字段，可选（用于 Last-Event-ID 续传） */
+  id?: string;
+};
+
 // ---------- 错误 ----------
 
 /**
@@ -79,6 +94,19 @@ export type HermesHttpClient = {
    * 所有失败路径都会以 HermesError(AppError) 抛出。
    */
   sendMessage(input: HermesMessageInput, logger?: Logger): Promise<HermesMessageResult>;
+
+  /**
+   * 调用 Hermes 流式接口（设计文档 §7.3）。
+   * 以 AsyncIterable 的形式产出一条条 SSE 事件；连接失败 / 超时 / 解析失败
+   * 统一抛 HermesError。
+   *
+   * 注意：fetch 自身的超时针对"请求握手 + 首个字节"；长流过程中不会再触发
+   * AbortController，避免把长 Agent 调用误杀。
+   */
+  streamMessage(
+    input: HermesMessageInput,
+    logger?: Logger,
+  ): AsyncIterable<HermesRawEvent>;
 
   /**
    * 健康检查。方便 /api/command/_debug/hermes-ping 或部署联调用。
@@ -187,6 +215,113 @@ export function createHermesHttpClient(): HermesHttpClient {
       return result;
     },
 
+    streamMessage(input, logger) {
+      // 用一个独立 async generator 封装整个生命周期。
+      // 注意：fetch 的 AbortController 只用于"连接阶段"的超时。
+      // 一旦 TTFB 之后就取消它，避免把长流杀掉。
+      return (async function* () {
+        const url = joinUrl(baseUrl, "/agent/message/stream");
+        const connectController = new AbortController();
+        const connectTimer = setTimeout(
+          () => connectController.abort(),
+          timeoutMs,
+        );
+
+        let response: Response;
+        try {
+          response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "text/event-stream",
+              ...buildAuthHeader(),
+            },
+            body: JSON.stringify(input),
+            signal: connectController.signal,
+          });
+        } catch (err) {
+          clearTimeout(connectTimer);
+          const isAbort =
+            (err as { name?: string } | null)?.name === "AbortError" ||
+            connectController.signal.aborted;
+          if (isAbort) {
+            logger?.warn({ url, timeoutMs }, "Hermes SSE connect timed out");
+            throw new HermesError(
+              "HERMES_TIMEOUT",
+              "Hermes 流式接口连接超时。",
+              504,
+              { url, timeoutMs },
+            );
+          }
+          logger?.error({ err, url }, "Hermes SSE connect failed");
+          throw new HermesError(
+            "HERMES_CONNECTION_FAILED",
+            "后端无法连接 Hermes 服务，请确认 Hermes 是否已启动。",
+            502,
+            { url, cause: (err as Error)?.message },
+          );
+        }
+        // 连上了就解绑连接超时，下面整个流的生命周期不再有硬超时
+        clearTimeout(connectTimer);
+
+        if (!response.ok || !response.body) {
+          const text = await response.text().catch(() => "");
+          logger?.warn(
+            { url, status: response.status, body: text.slice(0, 1000) },
+            "Hermes SSE returned non-2xx",
+          );
+          throw new HermesError(
+            "HERMES_AGENT_ERROR",
+            `Hermes Agent 流式接口失败。HTTP ${response.status}`,
+            502,
+            { status: response.status, body: text.slice(0, 2000) },
+          );
+        }
+
+        const reader = response.body
+          .pipeThrough(new TextDecoderStream())
+          .getReader();
+
+        // SSE 帧解析缓冲。按 `\n\n` 切块，每块内再按行解析 event/id/data。
+        let buffer = "";
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+            // SSE 规范支持 \r\n\r\n 或 \n\n 作为帧分隔。简单归一化后只按 \n\n 切。
+            const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            const parts = normalized.split("\n\n");
+            // 最后一段可能是半帧，留回 buffer 继续读
+            buffer = parts.pop() ?? "";
+            for (const frame of parts) {
+              const parsed = parseSseFrame(frame);
+              if (parsed) yield parsed;
+            }
+          }
+          // 流结束时，若 buffer 里还有一整段事件（某些 server 不以空行结尾），补一次
+          if (buffer.trim().length > 0) {
+            const parsed = parseSseFrame(buffer);
+            if (parsed) yield parsed;
+          }
+        } catch (err) {
+          logger?.error({ err, url }, "Hermes SSE read error");
+          throw new HermesError(
+            "HERMES_AGENT_ERROR",
+            "Hermes 流式响应读取失败。",
+            502,
+            { cause: (err as Error)?.message },
+          );
+        } finally {
+          try {
+            await reader.cancel();
+          } catch {
+            // reader 可能已经自动释放，忽略
+          }
+        }
+      })();
+    },
+
     async ping(logger) {
       const url = joinUrl(baseUrl, "/health");
       const controller = new AbortController();
@@ -207,6 +342,56 @@ export function createHermesHttpClient(): HermesHttpClient {
       }
     },
   };
+}
+
+/**
+ * 解析一个完整的 SSE 帧（不带结尾空行）。
+ * 规范：https://html.spec.whatwg.org/multipage/server-sent-events.html
+ *
+ * 我们只关心四类字段：`event` / `id` / `data` / 注释（`:` 开头，忽略）。
+ * 多个 data 行按规范用 `\n` 连接。
+ *
+ * 容错：
+ *  - data 不是 JSON → 退化为 { raw: string }
+ *  - 事件名缺失 → 默认为 "message"（与浏览器 EventSource 行为一致）
+ */
+function parseSseFrame(raw: string): HermesRawEvent | null {
+  const lines = raw.split("\n");
+  let event = "message";
+  let id: string | undefined;
+  const dataLines: string[] = [];
+
+  for (const line of lines) {
+    if (!line || line.startsWith(":")) continue; // 空行或注释
+    // field[: value]，value 前的单个空格按规范去掉
+    const idx = line.indexOf(":");
+    const field = idx === -1 ? line : line.slice(0, idx);
+    let value = idx === -1 ? "" : line.slice(idx + 1);
+    if (value.startsWith(" ")) value = value.slice(1);
+
+    if (field === "event") event = value;
+    else if (field === "id") id = value;
+    else if (field === "data") dataLines.push(value);
+    // 其他字段（retry 等）对我们没意义，忽略
+  }
+
+  if (dataLines.length === 0 && !id) return null;
+
+  const dataText = dataLines.join("\n");
+  let data: Record<string, unknown>;
+  try {
+    const parsed = JSON.parse(dataText || "null");
+    data =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : { value: parsed };
+  } catch {
+    data = { raw: dataText };
+  }
+
+  const out: HermesRawEvent = { event, data };
+  if (id !== undefined) out.id = id;
+  return out;
 }
 
 /** 进程级单例。handler 里直接用 `hermesClient` 即可。 */

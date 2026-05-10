@@ -1,4 +1,4 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
 import { db } from "@/db/client.js";
 import {
   commandEvents,
@@ -9,6 +9,22 @@ import {
   type CommandSessionRow,
 } from "@/db/schema.js";
 import type { CommandStatus, CommandStreamEvent } from "./command.dto.js";
+
+/**
+ * command_events 表是普通 SQLite 表，一定有隐式 rowid 且严格单调。
+ * 我们不能只靠 UUID 主键做游标排序（UUID v4 字典序与插入顺序无关），
+ * 也不能只靠 createdAt（CURRENT_TIMESTAMP 精度只到秒，同秒内冲突）。
+ * 故所有事件查询都显式按 rowid 排序，并把 rowid 作为 seq 暴露给上层。
+ */
+type CommandEventRowWithSeq = CommandEventRow & { seq: number };
+const EVENT_SELECT = {
+  id: commandEvents.id,
+  commandId: commandEvents.commandId,
+  eventType: commandEvents.eventType,
+  payloadJson: commandEvents.payloadJson,
+  createdAt: commandEvents.createdAt,
+  seq: sql<number>`${commandEvents}.rowid`.as("seq"),
+} as const;
 
 // ---------- sessions ----------
 
@@ -107,7 +123,7 @@ export async function finalizeCommand(
 export async function appendEvent(
   commandId: string,
   event: CommandStreamEvent,
-): Promise<CommandEventRow> {
+): Promise<CommandEventRowWithSeq> {
   const [row] = await db
     .insert(commandEvents)
     .values({
@@ -115,15 +131,59 @@ export async function appendEvent(
       eventType: event.type,
       payloadJson: JSON.stringify(event),
     })
-    .returning();
+    .returning({
+      id: commandEvents.id,
+      commandId: commandEvents.commandId,
+      eventType: commandEvents.eventType,
+      payloadJson: commandEvents.payloadJson,
+      createdAt: commandEvents.createdAt,
+      seq: sql<number>`${commandEvents}.rowid`,
+    });
   if (!row) throw new Error("Failed to append command event");
-  return row;
+  return row as CommandEventRowWithSeq;
 }
 
-export async function listEventsByCommand(commandId: string): Promise<CommandEventRow[]> {
-  return db
-    .select()
+export async function listEventsByCommand(
+  commandId: string,
+): Promise<CommandEventRowWithSeq[]> {
+  const rows = await db
+    .select(EVENT_SELECT)
     .from(commandEvents)
     .where(eq(commandEvents.commandId, commandId))
-    .orderBy(asc(commandEvents.createdAt), asc(commandEvents.id));
+    .orderBy(asc(sql`${commandEvents}.rowid`));
+  return rows as CommandEventRowWithSeq[];
 }
+
+/**
+ * 拉取"某个 seq 之后"的所有事件。seq = rowid，严格单调递增，无同值冲突。
+ */
+export async function listEventsAfter(
+  commandId: string,
+  afterSeq: number,
+): Promise<CommandEventRowWithSeq[]> {
+  const rows = await db
+    .select(EVENT_SELECT)
+    .from(commandEvents)
+    .where(
+      and(
+        eq(commandEvents.commandId, commandId),
+        gt(sql`${commandEvents}.rowid`, afterSeq),
+      ),
+    )
+    .orderBy(asc(sql`${commandEvents}.rowid`));
+  return rows as CommandEventRowWithSeq[];
+}
+
+/** 根据事件 UUID 定位 seq，用于 Last-Event-ID 重连 */
+export async function getEventById(
+  id: string,
+): Promise<CommandEventRowWithSeq | null> {
+  const rows = await db
+    .select(EVENT_SELECT)
+    .from(commandEvents)
+    .where(eq(commandEvents.id, id))
+    .limit(1);
+  return (rows[0] as CommandEventRowWithSeq | undefined) ?? null;
+}
+
+export type { CommandEventRowWithSeq };
