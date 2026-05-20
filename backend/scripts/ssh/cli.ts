@@ -18,9 +18,9 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-import { SSHClient } from "./ssh-client.js";
-import { SSHManager } from "./ssh-manager.js";
-import type { ConnectOptions, ExecResult } from "./types.js";
+import { SSHClient } from "../../src/lib/ssh/ssh-client.js";
+import { SSHManager } from "../../src/lib/ssh/ssh-manager.js";
+import type { ConnectOptions, ExecResult } from "../../src/lib/ssh/types.js";
 
 // ============================================================
 // 参数解析 (轻量手写，避免引入额外依赖)

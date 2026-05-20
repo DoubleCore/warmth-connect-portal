@@ -16,8 +16,11 @@ import { SSHClient } from "./ssh-client.js";
 import type { ExecResult, ServerConfig, SSHToolConfig } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_CONFIG_PATH = pathResolve(__dirname, "config.yaml");
-const EXAMPLE_CONFIG_PATH = pathResolve(__dirname, "config.example.yaml");
+// 配置文件按惯例放在 backend/scripts/ssh/，与 CLI 工具就近
+// 从 src/lib/ssh/ 上溯三级到 backend 根，再进 scripts/ssh
+const DEFAULT_CONFIG_DIR = pathResolve(__dirname, "../../../scripts/ssh");
+const DEFAULT_CONFIG_PATH = pathResolve(DEFAULT_CONFIG_DIR, "config.yaml");
+const EXAMPLE_CONFIG_PATH = pathResolve(DEFAULT_CONFIG_DIR, "config.example.yaml");
 
 export class SSHManager {
   private config: SSHToolConfig | null = null;
