@@ -14,3 +14,6 @@ data/
 # PDF 本地存储
 storage/
 !storage/pdfs/README.md
+
+# SSH 工具配置 (含敏感信息)
+scripts/ssh/config.yaml
