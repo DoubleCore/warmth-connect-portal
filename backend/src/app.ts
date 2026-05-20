@@ -14,6 +14,7 @@ import { reproductionRouter } from "@/modules/reproduction/reproduction.routes.j
 import { ragRouter } from "@/modules/rag/rag.routes.js";
 import { profileRouter } from "@/modules/profile/profile.routes.js";
 import { commandRouter } from "@/modules/command/command.routes.js";
+import { fastclawRouter } from "@/modules/fastclaw/fastclaw.routes.js";
 
 function toErrorPayload(
   code: string,
@@ -88,6 +89,7 @@ export function createApp() {
   app.route("/api/reproduction-records", reproductionRouter);
   app.route("/api/profile", profileRouter);
   app.route("/api/command", commandRouter);
+  app.route("/api/fastclaw", fastclawRouter);
 
   app.notFound((c) => {
     const rid = c.get("requestId");

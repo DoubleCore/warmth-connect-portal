@@ -29,6 +29,14 @@ const envSchema = z.object({
   // 可选。Hermes 侧若启用 token 鉴权，则通过 Authorization: Bearer <key> 携带。
   HERMES_API_KEY: optionalString(),
 
+  // ---------- FastClaw Agent（轻量对话通道） ----------
+  // 详见 fastclaw/ARCHITECTURE.md — OpenAI 兼容 /v1/chat/completions
+  FASTCLAW_BASE_URL: z.string().url().default("http://127.0.0.1:18953"),
+  FASTCLAW_API_KEY: optionalString(),
+  FASTCLAW_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  /** FastClaw 上要对话的 Agent ID（agt_xxx），留空则用默认 Agent */
+  FASTCLAW_AGENT_ID: optionalString(),
+
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
   // 任意 OpenAI 兼容的服务都行（OpenAI / DeepSeek / 本地 ollama / DashScope 兼容模式）。
