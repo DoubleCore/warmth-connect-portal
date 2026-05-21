@@ -154,6 +154,108 @@ export const devices = sqliteTable("devices", {
 });
 
 /**
+ * host_credentials：主机 SSH 凭证 + 追踪配置（与 devices 1:1）
+ *
+ * 设计取舍：
+ *   · 与 devices 拆表：凭证生命周期（少改、敏感）和 metrics 快照（高频写入）
+ *     完全不同，避免主表被频繁锁定。
+ *   · 密码字段加密存储：encryptedPassword 使用 AES-256-GCM，密钥来自
+ *     env.HOST_CRED_KEY（hex 编码 32 字节）。明文只在采集时解密、不持久化。
+ *   · keyFile 路径仍以明文存储——它本身指向私钥文件而非私钥内容，泄漏风险有限。
+ *   · trackingEnabled = 是否被 scheduler 拉起；离线 / 维护场景临时关掉。
+ *   · backoffUntil = 连续采集失败时的冷却到期时刻（ISO 文本），到期前 scheduler 跳过此主机。
+ */
+export const hostCredentials = sqliteTable(
+  "host_credentials",
+  {
+    deviceId: text("device_id")
+      .primaryKey()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    // Tailscale 内网 IP 或常规 IP/主机名
+    host: text("host").notNull(),
+    port: integer("port").notNull().default(22),
+    username: text("username").notNull(),
+    // AES-256-GCM 密文（Base64），可空 — 用密钥认证时为空
+    encryptedPassword: text("encrypted_password"),
+    // 私钥文件绝对路径（或 ~ 开头），可空 — 用密码认证时为空
+    keyFile: text("key_file"),
+    // 主机标签备注（如 "RTX 3080"），方便面板辨识，与 devices.name 互补
+    hostLabel: text("host_label"),
+    // 是否参与定时采集
+    trackingEnabled: integer("tracking_enabled", { mode: "boolean" }).notNull().default(true),
+    // 连续失败次数（成功一次清零；触发指数退避）
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    // 退避截止时间（ISO 文本，scheduler 在此之前跳过此主机）
+    backoffUntil: text("backoff_until"),
+    // 上次采集的状态信息（成功/失败摘要）
+    lastError: text("last_error"),
+    // 上次成功采集的时间（ISO）
+    lastSeenAt: text("last_seen_at"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (t) => ({
+    trackingIdx: index("host_credentials_tracking_idx").on(t.trackingEnabled),
+  }),
+);
+
+/**
+ * host_metrics_snapshot：主机状态快照（每分钟一条/主机）
+ *
+ * 设计取舍：
+ *   · 一条记录 = 一次采集。GPU 多卡时把所有卡的指标编码进 gpusJson（一次采集 = 一条
+ *     主行，里面包含所有 GPU 的子记录），避免主行 × 卡数的笛卡尔膨胀。
+ *   · online=false 时大多数指标字段允许 NULL（采集失败的占位记录，便于查"什么时候掉线了"）。
+ *   · 老数据靠定期清理脚本截断（保留 N 天），暂不写入 schema。
+ */
+export const hostMetricsSnapshot = sqliteTable(
+  "host_metrics_snapshot",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    deviceId: text("device_id")
+      .notNull()
+      .references(() => devices.id, { onDelete: "cascade" }),
+    // 是否成功 SSH 上去
+    online: integer("online", { mode: "boolean" }).notNull(),
+    // SSH 握手 + 命令执行总耗时
+    latencyMs: integer("latency_ms"),
+    // 远端 hostname 命令的输出
+    hostname: text("hostname"),
+    // 内核版本（uname -r 头部）
+    kernel: text("kernel"),
+    // 主机已运行秒数
+    uptimeSeconds: integer("uptime_seconds"),
+    // 1 分钟平均 CPU 负载（百分比；可超过 100% 多核场景）
+    cpuLoad1m: integer("cpu_load_1m_pct"),
+    memoryUsedMb: integer("memory_used_mb"),
+    memoryTotalMb: integer("memory_total_mb"),
+    // root 分区使用率（百分比 0-100）
+    diskUsedPct: integer("disk_used_pct"),
+    // GPU 多卡数据 JSON：[{ index, name, utilizationPct, memoryUsedMb, memoryTotalMb,
+    //   temperatureC, powerW }, ...]；nvidia-smi 不可用时为 null
+    gpusJson: text("gpus_json"),
+    // 失败原因（online=false 时填）
+    errorMessage: text("error_message"),
+    collectedAt: text("collected_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (t) => ({
+    deviceCollectedIdx: index("host_metrics_device_collected_idx").on(t.deviceId, t.collectedAt),
+    collectedIdx: index("host_metrics_collected_idx").on(t.collectedAt),
+  }),
+);
+
+export type HostCredentialRow = typeof hostCredentials.$inferSelect;
+export type NewHostCredentialRow = typeof hostCredentials.$inferInsert;
+export type HostMetricsSnapshotRow = typeof hostMetricsSnapshot.$inferSelect;
+export type NewHostMetricsSnapshotRow = typeof hostMetricsSnapshot.$inferInsert;
+
+/**
  * paper_reproduction_records：论文复现情况表
  * 对应设计文档 4.6
  */

@@ -57,6 +57,13 @@
       "when": 1778976000000,
       "tag": "0007_rag_paper_embeddings",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1779523200000,
+      "tag": "0008_host_tracking",
+      "breakpoints": true
     }
   ]
 }

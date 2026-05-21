@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   HardDrive,
@@ -190,7 +190,10 @@ function StatCard({
 
 function DeviceRow({ device }: { device: Device }) {
   return (
-    <div className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_80px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
+    <Link
+      to="/manager"
+      className="grid grid-cols-[1.4fr_1fr_1fr_1fr_1.4fr_80px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+    >
       <div className="flex items-center gap-2 min-w-0">
         <Server className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="truncate font-medium">{device.name}</span>
@@ -201,10 +204,10 @@ function DeviceRow({ device }: { device: Device }) {
       </div>
       <div className="truncate text-sm text-muted-foreground">{device.location ?? "—"}</div>
       <div className="truncate text-sm text-muted-foreground">{device.description ?? "—"}</div>
-      <div className="flex justify-end">
+      <div className="flex justify-end" onClick={(e) => e.preventDefault()}>
         <DeviceDeleteButton deviceId={device.id} deviceName={device.name} />
       </div>
-    </div>
+    </Link>
   );
 }
 
@@ -235,7 +238,11 @@ function RecordRow({ record }: { record: ReproductionRecord }) {
   const { t } = useI18n();
   const style = recordStatusStyles[record.status];
   return (
-    <div className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr_96px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0">
+    <Link
+      to="/manager"
+      search={{ runId: record.id }}
+      className="grid grid-cols-[2fr_1fr_1fr_1.4fr_1fr_1fr_96px] items-center gap-4 border-b border-border bg-card px-6 py-4 last:border-0 cursor-pointer transition-colors hover:bg-accent/50"
+    >
       <div className="min-w-0">
         <div className="truncate font-medium">{record.paper.title}</div>
         <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">{record.id}</div>
@@ -264,11 +271,11 @@ function RecordRow({ record }: { record: ReproductionRecord }) {
       </div>
       <div className="truncate text-xs text-muted-foreground">{formatTs(record.startedAt)}</div>
       <div className="truncate text-xs text-muted-foreground">{formatTs(record.finishedAt)}</div>
-      <div className="flex items-center justify-end gap-1">
+      <div className="flex items-center justify-end gap-1" onClick={(e) => e.preventDefault()}>
         <ReproductionFormDialog mode="edit" record={record} />
         <ReproductionDeleteButton recordId={record.id} paperTitle={record.paper.title} />
       </div>
-    </div>
+    </Link>
   );
 }
 

@@ -29,6 +29,20 @@ const envSchema = z.object({
   // 可选。Hermes 侧若启用 token 鉴权，则通过 Authorization: Bearer <key> 携带。
   HERMES_API_KEY: optionalString(),
 
+  // ---------- FastClaw Agent（轻量对话通道） ----------
+  // 详见 fastclaw/ARCHITECTURE.md — OpenAI 兼容 /v1/chat/completions
+  FASTCLAW_BASE_URL: z.string().url().default("http://127.0.0.1:18953"),
+  FASTCLAW_API_KEY: optionalString(),
+  FASTCLAW_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
+  /** FastClaw 上要对话的 Agent ID（agt_xxx），留空则用默认 Agent */
+  FASTCLAW_AGENT_ID: optionalString(),
+  /** 论文部署 Agent */
+  FASTCLAW_AGENT_DEPLOY: optionalString(),
+  /** 论文解析 Agent */
+  FASTCLAW_AGENT_PAPER_ANALYSE: optionalString(),
+  /** 论文研究/阅读 Agent */
+  FASTCLAW_AGENT_RESEARCHER: optionalString(),
+
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
   // 任意 OpenAI 兼容的服务都行（OpenAI / DeepSeek / 本地 ollama / DashScope 兼容模式）。
@@ -39,6 +53,28 @@ const envSchema = z.object({
   LLM_CHAT_MODEL: z.string().min(1).default("gpt-4o-mini"),
   LLM_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+
+  // ---------- Host Tracking ----------
+  // 主机 SSH 凭证加密密钥：32 字节 hex（64 字符）。生成方式：
+  //   npm run host:keygen
+  // 留空 → 创建/读取主机时不会做加密，POST /api/host-tracking 创建带密码的主机会 503。
+  HOST_CRED_KEY: optionalString(),
+  /** 采集调度 cron 表达式，默认每分钟一次。设置为 disabled 可关闭定时采集（测试场景）。 */
+  HOST_TRACKING_CRON: z.string().min(1).default("* * * * *"),
+  /** 连续采集失败 N 次后切换到退避周期。 */
+  HOST_TRACKING_BACKOFF_THRESHOLD: z.coerce.number().int().positive().default(3),
+  /** 退避时长（毫秒），默认 5 分钟。 */
+  HOST_TRACKING_BACKOFF_MS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(5 * 60 * 1000),
+  /** 单次 SSH 采集总超时（毫秒）。 */
+  HOST_TRACKING_PROBE_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
+  /** 是否在服务启动时自动启用调度器。测试 / 开发可设 false。 */
+  HOST_TRACKING_ENABLED: z
+    .preprocess((v) => (typeof v === "string" ? v.toLowerCase() !== "false" : v), z.boolean())
+    .default(true),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -54,8 +90,8 @@ export const corsOrigins =
   env.CORS_ORIGIN === "*"
     ? "*"
     : env.CORS_ORIGIN.split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+        .map((s) => s.trim())
+        .filter(Boolean);
 
 /** Hard limit for uploaded PDF body size. Tunable via env if we ever need to. */
 export const PDF_MAX_BYTES = 26 * 1024 * 1024; // 26 MB

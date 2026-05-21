@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { PdfUploadButton } from "@/components/hermes/PdfUploadButton";
+import { StartReproductionButton } from "@/components/hermes/StartReproductionButton";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api-client";
 import { getPaperDetail, getPaperPdfUrl } from "@/api/papers";
@@ -127,6 +128,7 @@ function PaperDetailPage() {
                   {t("paper.repoUrl")}
                 </a>
               )}
+              <StartReproductionButton paperId={paper.id} paperTitle={paper.title} />
               <PdfUploadButton paperId={paper.id} />
               <a
                 href={getPaperPdfUrl(paper.id)}
