@@ -50,3 +50,7 @@ backend/.env
 backend/.env.local
 backend/node_modules/
 backend/dist/
+backend/nul
+
+# Frontend env
+fronted/.env

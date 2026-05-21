@@ -105,6 +105,13 @@ export async function chatStream(
 ): Promise<AsyncIterable<FastClawStreamChunk>> {
   ensureConfigured();
 
+  if (input.agentRole === "deploy") {
+    return fastclawClient.webChatStream(input.message, logger, {
+      agentId: resolveAgentId(input),
+      sessionKey: input.sessionKey ?? `wcp-deploy-chat-${Date.now()}`,
+    });
+  }
+
   const messages = buildMessages(input);
   return fastclawClient.chatStream(messages, logger, {
     agentId: resolveAgentId(input),
@@ -228,11 +235,11 @@ export async function deployChat(input: FastClawDeployInput, logger: Logger): Pr
 }
 
 /**
- * 发起部署对话（真流式）。
+ * 发起部署对话（FastClaw Web Chat 事件流）。
  *
- * 部署 agent 会执行 SSH / clone / install / launch 等长耗时动作，非流式等待完整
- * completion 会被 FASTCLAW_TIMEOUT_MS 截断。这里直接返回 FastClaw streaming chunk，
- * 由路由层桥接成前端 SSE。
+ * OpenAI-compatible /v1/chat/completions 能启动部署 agent，但它不会稳定暴露
+ * FastClaw Web UI 正在使用的工具事件。部署这种长任务走 /api/chat/stream，
+ * 这样 Hermes 页面能看到 tool_call / tool_result / content_delta。
  */
 export async function deployChatStream(
   input: FastClawDeployInput,
@@ -240,20 +247,15 @@ export async function deployChatStream(
 ): Promise<AsyncIterable<FastClawStreamChunk>> {
   ensureConfigured();
 
-  const { message, systemPrompt } = await buildDeployMessage(input);
-  const messages = buildMessages({
-    message,
-    systemPrompt,
-    stream: true,
-  });
+  const { message } = await buildDeployMessage(input);
 
   logger.info(
     { paperId: input.paperId, deviceId: input.deviceId, reproductionId: input.reproductionId },
-    "FastClaw deploy chat initiated (streaming)",
+    "FastClaw deploy chat initiated (web stream)",
   );
 
-  return fastclawClient.chatStream(messages, logger, {
+  return fastclawClient.webChatStream(message, logger, {
     agentId: env.FASTCLAW_AGENT_DEPLOY,
-    sessionKey: input.sessionKey,
+    sessionKey: input.sessionKey ?? input.reproductionId,
   });
 }

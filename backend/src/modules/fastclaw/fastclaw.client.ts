@@ -95,6 +95,13 @@ export type FastClawClient = {
     options?: FastClawChatOptions,
   ): Promise<AsyncIterable<FastClawStreamChunk>>;
 
+  /** FastClaw Web Chat 事件流，适合需要工具过程可视化的长任务 */
+  webChatStream(
+    message: string,
+    logger?: Logger,
+    options?: FastClawChatOptions,
+  ): Promise<AsyncIterable<FastClawStreamChunk>>;
+
   /** 健康检查 */
   ping(logger?: Logger): Promise<boolean>;
 };
@@ -150,6 +157,32 @@ type ChatCompletionResp = {
     prompt_tokens?: number;
     completion_tokens?: number;
     total_tokens?: number;
+  };
+};
+
+type WebChatStreamEvent = {
+  type:
+    | "content"
+    | "content_delta"
+    | "tool_call"
+    | "tool_result"
+    | "steer"
+    | "error"
+    | "done"
+    | "turn_pending"
+    | "subagent_progress";
+  data?: {
+    content?: string;
+    delta?: string;
+    id?: string;
+    name?: string;
+    arguments?: string;
+    result?: unknown;
+    message?: string;
+    iteration?: number;
+    max?: number;
+    phase?: string;
+    tools?: string[];
   };
 };
 
@@ -340,6 +373,109 @@ export function createFastClawClient(): FastClawClient {
       })();
     },
 
+    async webChatStream(message, logger, options) {
+      const agentId = resolveAgentId(options);
+      const sessionId = options?.sessionKey;
+      if (!agentId) {
+        throw new FastClawError("FASTCLAW_NOT_CONFIGURED", "FastClaw 部署 Agent 未配置。", 503);
+      }
+      if (!sessionId) {
+        throw new FastClawError("FASTCLAW_UPSTREAM_ERROR", "FastClaw sessionKey 不能为空。", 400);
+      }
+
+      const url = joinUrl(baseUrl, "/api/chat/stream");
+      const controller = new AbortController();
+      const connectTimer = setTimeout(() => controller.abort(), timeoutMs);
+
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: buildHeaders({ sessionKey: sessionId, agentId }),
+          body: JSON.stringify({
+            agentId,
+            sessionId,
+            message,
+            imageUrls: [],
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(connectTimer);
+        if (isAbortError(err, controller.signal)) {
+          logger?.warn({ url, timeoutMs }, "FastClaw web chat stream connect timed out");
+          throw new FastClawError("FASTCLAW_TIMEOUT", "FastClaw Web Chat 流式连接超时。", 504);
+        }
+        logger?.error({ err, url }, "FastClaw web chat stream connect failed");
+        throw new FastClawError(
+          "FASTCLAW_CONNECTION_FAILED",
+          "无法连接 FastClaw Web Chat 服务，请确认是否已启动。",
+          502,
+          { url, cause: (err as Error)?.message },
+        );
+      }
+      clearTimeout(connectTimer);
+
+      if (!res.ok || !res.body) {
+        const text = await res.text().catch(() => "");
+        logger?.warn(
+          { url, status: res.status, body: text.slice(0, 1000) },
+          "FastClaw web chat stream non-2xx",
+        );
+        throw new FastClawError(
+          "FASTCLAW_UPSTREAM_ERROR",
+          `FastClaw Web Chat 流式接口返回 HTTP ${res.status}。`,
+          502,
+          { status: res.status, body: text.slice(0, 2000) },
+        );
+      }
+
+      const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+
+      return (async function* () {
+        let buffer = "";
+        let sawContentDelta = false;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+
+            const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+            const parts = normalized.split("\n\n");
+            buffer = parts.pop() ?? "";
+
+            for (const frame of parts) {
+              const chunks = parseWebChatStreamFrame(frame, { sawContentDelta });
+              if (chunks.sawContentDelta) sawContentDelta = true;
+              for (const chunk of chunks.items) {
+                yield chunk;
+              }
+            }
+          }
+          if (buffer.trim().length > 0) {
+            const chunks = parseWebChatStreamFrame(buffer, { sawContentDelta });
+            for (const chunk of chunks.items) {
+              yield chunk;
+            }
+          }
+        } catch (err) {
+          logger?.error({ err, url }, "FastClaw web chat stream read error");
+          throw new FastClawError(
+            "FASTCLAW_UPSTREAM_ERROR",
+            "FastClaw Web Chat 流式读取失败。",
+            502,
+          );
+        } finally {
+          try {
+            await reader.cancel();
+          } catch {
+            // ignore
+          }
+        }
+      })();
+    },
+
     async ping(logger) {
       // FastClaw 没有独立 /health，用 /v1/models 做简易探活
       const url = joinUrl(baseUrl, "/health");
@@ -405,6 +541,92 @@ function parseStreamFrame(raw: string): FastClawStreamChunk | null {
     };
   } catch {
     return null;
+  }
+}
+
+function parseWebChatStreamFrame(
+  raw: string,
+  state: { sawContentDelta: boolean },
+): { items: FastClawStreamChunk[]; sawContentDelta: boolean } {
+  const dataLines: string[] = [];
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("data: ")) {
+      dataLines.push(line.slice(6));
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice(5));
+    }
+  }
+  if (dataLines.length === 0) {
+    return { items: [], sawContentDelta: false };
+  }
+
+  let evt: WebChatStreamEvent;
+  try {
+    evt = JSON.parse(dataLines.join("")) as WebChatStreamEvent;
+  } catch {
+    return { items: [], sawContentDelta: false };
+  }
+
+  const item = (content: string, finishReason: string | null = null): FastClawStreamChunk => ({
+    id: evt.data?.id ?? "",
+    content,
+    finishReason,
+  });
+
+  switch (evt.type) {
+    case "content_delta": {
+      const delta = evt.data?.delta ?? "";
+      return { items: delta ? [item(delta)] : [], sawContentDelta: true };
+    }
+    case "content": {
+      const content = evt.data?.content ?? "";
+      // content 是完整最终文本；如果前面已经实时吐过 delta，就不要再重复输出一遍。
+      return {
+        items: !state.sawContentDelta && content ? [item(content)] : [],
+        sawContentDelta: false,
+      };
+    }
+    case "tool_call": {
+      const name = evt.data?.name || "tool";
+      const args = evt.data?.arguments ? `\n${evt.data.arguments}` : "";
+      return { items: [item(`\n\n🔧 ${name}${args}\n\n`)], sawContentDelta: false };
+    }
+    case "tool_result": {
+      const name = evt.data?.name || "tool";
+      const result = stringifyEventValue(evt.data?.result);
+      return { items: [item(`\n\n✅ ${name}\n${result}\n\n`)], sawContentDelta: false };
+    }
+    case "subagent_progress": {
+      const phase = evt.data?.phase ?? "running";
+      const progress =
+        typeof evt.data?.iteration === "number" && typeof evt.data?.max === "number"
+          ? ` ${evt.data.iteration}/${evt.data.max}`
+          : "";
+      return { items: [item(`\n\n⏳ ${phase}${progress}\n\n`)], sawContentDelta: false };
+    }
+    case "steer": {
+      const message = evt.data?.message;
+      return { items: message ? [item(`\n\n↪ ${message}\n\n`)] : [], sawContentDelta: false };
+    }
+    case "error": {
+      const message = evt.data?.message ?? "FastClaw Web Chat stream error";
+      return { items: [item(`\n\n⚠️ ${message}\n\n`)], sawContentDelta: false };
+    }
+    case "done":
+      return { items: [item("", "stop")], sawContentDelta: false };
+    case "turn_pending":
+    default:
+      return { items: [], sawContentDelta: false };
+  }
+}
+
+function stringifyEventValue(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
   }
 }
 
