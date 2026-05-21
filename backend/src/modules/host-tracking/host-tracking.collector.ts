@@ -148,10 +148,13 @@ function parseMem(text: string): MemSummary {
   // free -m 输出形如：
   //               total        used        free      shared  buff/cache   available
   // Mem:          15924        4831        2188         123        8904       10755
+  // 中文 locale:
+  // 内存：       15855        6436         910         268        8508        8816
   for (const line of text.split("\n")) {
-    if (!line.toLowerCase().startsWith("mem:")) continue;
+    const lower = line.toLowerCase();
+    if (!lower.startsWith("mem:") && !line.startsWith("内存")) continue;
     const cols = line.trim().split(/\s+/);
-    // cols: ["Mem:", total, used, ...]
+    // cols: ["Mem:" or "内存：", total, used, ...]
     const total = Number.parseInt(cols[1] ?? "", 10);
     const used = Number.parseInt(cols[2] ?? "", 10);
     return {

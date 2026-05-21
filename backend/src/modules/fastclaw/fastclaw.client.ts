@@ -9,7 +9,7 @@ import { AppError } from "@/shared/errors.js";
  * 和 Hermes 不同的是：
  *   - 没有 Runs / Approval 两阶段流程
  *   - 直接走标准 OpenAI SSE streaming（`data: {"choices":[...]}\n\n`）
- *   - Agent 选择通过 model 字段传入 agent ID
+ *   - Agent 选择通过 X-Fastclaw-Agent-Id 请求头传入 agent ID
  *   - 多轮由 FastClaw 内部 session 管理
  *
  * 本客户端定位：轻量对话通道，不做工具审批、不做 sandbox 编排。
@@ -48,6 +48,13 @@ export type FastClawChatOptions = {
   maxTokens?: number;
   /** 是否流式返回 */
   stream?: boolean;
+  /**
+   * FastClaw 端会话标识。透传成 `X-Fastclaw-Session-Key` 请求头，
+   * 让 FastClaw 把多次 chat/completions 归并到同一个会话窗口（
+   * 见 fastclaw/internal/api/openai.go::HandleChatCompletions）。
+   * 不传时 FastClaw 会以纳秒戳生成新 key，每次都开新会话。
+   */
+  sessionKey?: string;
 };
 
 /**
@@ -104,18 +111,31 @@ function isAbortError(err: unknown, signal: AbortSignal): boolean {
   return (err as { name?: string } | null)?.name === "AbortError" || signal.aborted;
 }
 
-function buildHeaders(): Record<string, string> {
+function buildHeaders(opts?: { sessionKey?: string; agentId?: string }): Record<string, string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (env.FASTCLAW_API_KEY) {
     headers["Authorization"] = `Bearer ${env.FASTCLAW_API_KEY}`;
   }
+  if (opts?.sessionKey) {
+    // FastClaw 用这个头把多次请求归并到同一个会话窗口。
+    headers["X-Fastclaw-Session-Key"] = opts.sessionKey;
+  }
+  if (opts?.agentId) {
+    // FastClaw HandleChatCompletions 实际只看这个头（或 body.agent_id）来选 agent，
+    // 不解析 OpenAI 的 model 字段。
+    headers["X-Fastclaw-Agent-Id"] = opts.agentId;
+  }
   return headers;
 }
 
+function resolveAgentId(options?: FastClawChatOptions): string | undefined {
+  return options?.agentId ?? env.FASTCLAW_AGENT_ID ?? undefined;
+}
+
 function resolveModel(options?: FastClawChatOptions): string {
-  // FastClaw 用 model 字段路由到具体 Agent
-  // 格式：agent ID 或 "agentId/modelOverride"
-  return options?.agentId ?? env.FASTCLAW_AGENT_ID ?? "default";
+  // OpenAI 兼容协议要求 model 字段非空。FastClaw 不用这个字段做 agent 路由；
+  // 实际路由依赖 X-Fastclaw-Agent-Id 头。
+  return resolveAgentId(options) ?? "default";
 }
 
 // ---------- OpenAI 兼容响应形状 ----------
@@ -166,7 +186,10 @@ export function createFastClawClient(): FastClawClient {
       try {
         res = await fetch(url, {
           method: "POST",
-          headers: buildHeaders(),
+          headers: buildHeaders({
+            sessionKey: options?.sessionKey,
+            agentId: resolveAgentId(options),
+          }),
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -243,7 +266,10 @@ export function createFastClawClient(): FastClawClient {
       try {
         res = await fetch(url, {
           method: "POST",
-          headers: buildHeaders(),
+          headers: buildHeaders({
+            sessionKey: options?.sessionKey,
+            agentId: resolveAgentId(options),
+          }),
           body: JSON.stringify(body),
           signal: controller.signal,
         });
@@ -265,7 +291,10 @@ export function createFastClawClient(): FastClawClient {
 
       if (!res.ok || !res.body) {
         const text = await res.text().catch(() => "");
-        logger?.warn({ url, status: res.status, body: text.slice(0, 500) }, "FastClaw stream non-2xx");
+        logger?.warn(
+          { url, status: res.status, body: text.slice(0, 500) },
+          "FastClaw stream non-2xx",
+        );
         throw new FastClawError(
           "FASTCLAW_UPSTREAM_ERROR",
           `FastClaw 流式接口返回 HTTP ${res.status}。`,

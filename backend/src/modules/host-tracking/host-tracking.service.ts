@@ -42,6 +42,7 @@ export function toHostDto(row: HostCredentialRow): HostDto {
     port: row.port,
     username: row.username,
     hasPassword: Boolean(row.encryptedPassword),
+    password: row.encryptedPassword ?? null,
     keyFile: row.keyFile,
     hostLabel: row.hostLabel,
     trackingEnabled: Boolean(row.trackingEnabled),
@@ -123,7 +124,7 @@ export async function createHost(input: CreateHostInput): Promise<HostDto> {
     host: input.host,
     port: input.port,
     username: input.username,
-    encryptedPassword: input.password ? encryptSecret(input.password) : null,
+    encryptedPassword: input.password ?? null,
     keyFile: input.keyFile ?? null,
     hostLabel: input.hostLabel ?? null,
     trackingEnabled: input.trackingEnabled,
@@ -141,7 +142,7 @@ export async function updateHost(deviceId: string, input: UpdateHostInput): Prom
   if (input.port !== undefined) patch.port = input.port;
   if (input.username !== undefined) patch.username = input.username;
   if (input.password !== undefined) {
-    patch.encryptedPassword = input.password === null ? null : encryptSecret(input.password);
+    patch.encryptedPassword = input.password === null ? null : input.password;
   }
   if (input.keyFile !== undefined) {
     patch.keyFile = input.keyFile === null ? null : input.keyFile;
@@ -207,17 +208,10 @@ export async function probeHost(
   const log = logger.child({ deviceId: cred.deviceId, host: cred.host, reason: context.reason });
   log.debug("host-tracking probe start");
 
-  // 解密密码（如有）。失败的话连试都不试，直接落败记录。
-  let decryptedPassword: string | undefined;
+  // 密码直接从数据库读（明文存储）
+  let password: string | undefined;
   if (cred.encryptedPassword) {
-    try {
-      decryptedPassword = decryptSecret(cred.encryptedPassword);
-    } catch (err) {
-      const errorMessage = `decrypt failed: ${(err as Error).message}`;
-      log.warn({ err }, "host-tracking probe decrypt failed");
-      const snap = await persistFailure(cred, errorMessage, null, context.reason);
-      return toMetricsDto(snap);
-    }
+    password = cred.encryptedPassword;
   }
 
   const result: CollectResult = await collectMetrics({
@@ -225,7 +219,7 @@ export async function probeHost(
     port: cred.port,
     username: cred.username,
     auth: {
-      password: decryptedPassword,
+      password,
       keyFile: cred.keyFile ?? undefined,
     },
     timeoutMs: env.HOST_TRACKING_PROBE_TIMEOUT_MS,

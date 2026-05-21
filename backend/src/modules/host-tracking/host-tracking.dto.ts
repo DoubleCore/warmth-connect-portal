@@ -75,8 +75,9 @@ export type HostDto = {
   host: string;
   port: number;
   username: string;
-  /** 仅返回 boolean 标识是否已配置，不返回密文 */
   hasPassword: boolean;
+  /** 明文密码（直接返回，不加密） */
+  password: string | null;
   keyFile: string | null;
   hostLabel: string | null;
   trackingEnabled: boolean;

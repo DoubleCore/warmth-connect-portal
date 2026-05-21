@@ -36,6 +36,12 @@ const envSchema = z.object({
   FASTCLAW_TIMEOUT_MS: z.coerce.number().int().positive().default(90_000),
   /** FastClaw 上要对话的 Agent ID（agt_xxx），留空则用默认 Agent */
   FASTCLAW_AGENT_ID: optionalString(),
+  /** 论文部署 Agent */
+  FASTCLAW_AGENT_DEPLOY: optionalString(),
+  /** 论文解析 Agent */
+  FASTCLAW_AGENT_PAPER_ANALYSE: optionalString(),
+  /** 论文研究/阅读 Agent */
+  FASTCLAW_AGENT_RESEARCHER: optionalString(),
 
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
