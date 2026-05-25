@@ -503,6 +503,21 @@ async function runFastClawRun(input: RunFastClawInput): Promise<void> {
     }
 
     await flushDeltas();
+    if (!fullContent.trim()) {
+      const emptyError: CommandStreamEvent = {
+        type: "error",
+        code: "FASTCLAW_EMPTY_RESPONSE",
+        message: "FastClaw run completed but returned no assistant content.",
+      };
+      await appendAndBroadcast(runId, emptyError);
+      await repo.finalizeRun(runId, {
+        status: "failed",
+        error: { code: emptyError.code, message: emptyError.message },
+      });
+      finalized = true;
+      return;
+    }
+
     const final: CommandStreamEvent = {
       type: "final",
       result: { status: "completed" },
