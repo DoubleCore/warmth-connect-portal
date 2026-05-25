@@ -587,26 +587,32 @@ function parseWebChatStreamFrame(
       };
     }
     case "tool_call": {
-      const name = evt.data?.name || "tool";
-      const args = evt.data?.arguments ? `\n${evt.data.arguments}` : "";
-      return { items: [item(`\n\n🔧 ${name}${args}\n\n`)], sawContentDelta: false };
+      const name = buildToolCallSummary(evt.data?.name || "tool", evt.data?.arguments);
+      const args = "";
+      return { items: [item(`\n\n${name}${args}\n\n`)], sawContentDelta: false };
     }
     case "tool_result": {
-      const name = evt.data?.name || "tool";
-      const result = stringifyEventValue(evt.data?.result);
-      return { items: [item(`\n\n✅ ${name}\n${result}\n\n`)], sawContentDelta: false };
+      const name = buildToolResultSummary(evt.data?.name || "tool", evt.data?.result);
+      const result = "";
+      return { items: [item(`\n\n${name}${result}\n\n`)], sawContentDelta: false };
     }
     case "subagent_progress": {
-      const phase = evt.data?.phase ?? "running";
+      const phase = truncateDisplayText(String(evt.data?.phase ?? "running"));
       const progress =
         typeof evt.data?.iteration === "number" && typeof evt.data?.max === "number"
           ? ` ${evt.data.iteration}/${evt.data.max}`
           : "";
-      return { items: [item(`\n\n⏳ ${phase}${progress}\n\n`)], sawContentDelta: false };
+      return {
+        items: [item(`\n\n子任务进度：${truncateDisplayText(`${phase}${progress}`)}\n\n`)],
+        sawContentDelta: false,
+      };
     }
     case "steer": {
-      const message = evt.data?.message;
-      return { items: message ? [item(`\n\n↪ ${message}\n\n`)] : [], sawContentDelta: false };
+      const message =
+        typeof evt.data?.message === "string"
+          ? truncateDisplayText(evt.data.message)
+          : evt.data?.message;
+      return { items: message ? [item(`\n\n状态：${message}\n\n`)] : [], sawContentDelta: false };
     }
     case "error": {
       const message = evt.data?.message ?? "FastClaw Web Chat stream error";
@@ -620,14 +626,111 @@ function parseWebChatStreamFrame(
   }
 }
 
-function stringifyEventValue(value: unknown): string {
+function buildToolCallSummary(name: string, args: unknown): string {
+  const detail = truncateDisplayText(extractToolDetail(args));
+  if (isSkillTool(name, args)) {
+    return detail ? `加载 skill：${detail}` : "加载 skill";
+  }
+
+  const toolName = displayToolName(name, args);
+  return detail ? `执行了 ${toolName}：${detail}` : `执行了 ${toolName}`;
+}
+
+function buildToolResultSummary(name: string, result: unknown): string {
+  const toolName = displayToolName(name);
+  const detail = truncateDisplayText(extractToolDetail(result));
+  return detail ? `${toolName} 执行完成：${detail}` : `${toolName} 执行完成`;
+}
+
+function displayToolName(name: string, args?: unknown): string {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("skill")) return "skill";
+  if (normalized.includes("bash")) return "bash";
+  if (normalized.includes("exec")) return "exec";
+  if (normalized.includes("shell") || normalized.includes("command")) {
+    return extractCommandKind(args) ?? "exec";
+  }
+
+  return truncateDisplayText(name || "tool", 12) || "tool";
+}
+
+function isSkillTool(name: string, args?: unknown): boolean {
+  const normalized = name.toLowerCase();
+  if (normalized.includes("skill")) return true;
+  return extractToolDetail(args).toLowerCase().includes("skill");
+}
+
+function extractCommandKind(args: unknown): string | null {
+  const detail = extractToolDetail(args).toLowerCase();
+  const firstToken = detail.match(/^[a-z0-9_.-]+/)?.[0];
+  if (!firstToken) return null;
+  if (
+    ["bash", "cmd", "exec", "node", "npm", "npx", "pnpm", "powershell", "python", "yarn"].includes(
+      firstToken,
+    )
+  ) {
+    return firstToken === "powershell" ? "exec" : firstToken;
+  }
+  return null;
+}
+
+function extractToolDetail(value: unknown): string {
   if (value === undefined || value === null) return "";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") {
+    const parsed = parseMaybeJsonObject(value);
+    if (parsed) return pickToolDetail(parsed) ?? value;
+    return value;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    return pickToolDetail(value as Record<string, unknown>) ?? stringifyCompact(value);
+  }
+  return stringifyCompact(value);
+}
+
+function parseMaybeJsonObject(value: string): Record<string, unknown> | null {
   try {
-    return JSON.stringify(value, null, 2);
+    const parsed = JSON.parse(value) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function pickToolDetail(obj: Record<string, unknown>): string | null {
+  return pickString(obj, [
+    "skill",
+    "skillName",
+    "name",
+    "command",
+    "cmd",
+    "query",
+    "path",
+    "tool_input",
+    "input",
+  ]);
+}
+
+function pickString(obj: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return null;
+}
+
+function stringifyCompact(value: unknown): string {
+  try {
+    return typeof value === "string" ? value : JSON.stringify(value);
   } catch {
     return String(value);
   }
+}
+
+function truncateDisplayText(value: string, limit = 20): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > limit ? `${normalized.slice(0, limit)}...` : normalized;
 }
 
 /** 进程级单例 */

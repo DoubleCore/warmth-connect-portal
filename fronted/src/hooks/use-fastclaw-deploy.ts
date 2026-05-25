@@ -177,6 +177,37 @@ export function useFastClawDeploy(opts?: { persistKey?: string }): UseFastClawDe
     ]);
   }, []);
 
+  const refreshSessionHistory = useCallback(async () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return;
+
+    try {
+      const history = await getFastClawSessionHistory(sessionId);
+      const last = history.runs[history.runs.length - 1];
+      setMessages(runsToMessages(history.runs));
+      setError(null);
+      setPhase(
+        last === undefined
+          ? "idle"
+          : isTerminal(last.status)
+            ? phaseFromStatus(last.status)
+            : "streaming",
+      );
+      setRestored(true);
+    } catch {
+      // Keep the live state if the reconciliation request misses.
+    }
+  }, []);
+
+  const refreshSessionHistorySoon = useCallback(
+    (delayMs = 250) => {
+      window.setTimeout(() => {
+        void refreshSessionHistory();
+      }, delayMs);
+    },
+    [refreshSessionHistory],
+  );
+
   const attachHandlers = useCallback(
     (es: EventSource, runId: string) => {
       const eventTypes: CommandStreamEventType[] = [
@@ -210,26 +241,32 @@ export function useFastClawDeploy(opts?: { persistKey?: string }): UseFastClawDe
             setError(parsed.message);
             setPhase("error");
             closeStream();
+            refreshSessionHistorySoon();
             return;
           }
 
           if (parsed.type === "final") {
             setPhase("completed");
             closeStream();
+            refreshSessionHistorySoon();
             return;
           }
         });
       }
 
-      es.addEventListener("end", () => closeStream());
+      es.addEventListener("end", () => {
+        closeStream();
+        refreshSessionHistorySoon();
+      });
       es.onerror = () => {
         if (es.readyState === EventSource.CLOSED) return;
         setError("FastClaw 部署流连接中断，后台任务仍会继续，可刷新后恢复。");
         setPhase("error");
         closeStream();
+        refreshSessionHistorySoon(1500);
       };
     },
-    [appendAssistantDelta, closeStream],
+    [appendAssistantDelta, closeStream, refreshSessionHistorySoon],
   );
 
   const openRunStream = useCallback(

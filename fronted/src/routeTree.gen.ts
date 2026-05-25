@@ -15,6 +15,7 @@ import { Route as SearchRouteImport } from './routes/search'
 import { Route as ResearchRouteImport } from './routes/research'
 import { Route as ManagerRouteImport } from './routes/manager'
 import { Route as LibraryRouteImport } from './routes/library'
+import { Route as FastclawRouteImport } from './routes/fastclaw'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LibraryPaperIdRouteImport } from './routes/library_.$paperId'
@@ -49,6 +50,11 @@ const LibraryRoute = LibraryRouteImport.update({
   path: '/library',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FastclawRoute = FastclawRouteImport.update({
+  id: '/fastclaw',
+  path: '/fastclaw',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DocsRoute = DocsRouteImport.update({
   id: '/docs',
   path: '/docs',
@@ -68,6 +74,7 @@ const LibraryPaperIdRoute = LibraryPaperIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/fastclaw': typeof FastclawRoute
   '/library': typeof LibraryRoute
   '/manager': typeof ManagerRoute
   '/research': typeof ResearchRoute
@@ -79,6 +86,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/fastclaw': typeof FastclawRoute
   '/library': typeof LibraryRoute
   '/manager': typeof ManagerRoute
   '/research': typeof ResearchRoute
@@ -91,6 +99,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/docs': typeof DocsRoute
+  '/fastclaw': typeof FastclawRoute
   '/library': typeof LibraryRoute
   '/manager': typeof ManagerRoute
   '/research': typeof ResearchRoute
@@ -104,6 +113,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/docs'
+    | '/fastclaw'
     | '/library'
     | '/manager'
     | '/research'
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/docs'
+    | '/fastclaw'
     | '/library'
     | '/manager'
     | '/research'
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/docs'
+    | '/fastclaw'
     | '/library'
     | '/manager'
     | '/research'
@@ -138,6 +150,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   DocsRoute: typeof DocsRoute
+  FastclawRoute: typeof FastclawRoute
   LibraryRoute: typeof LibraryRoute
   ManagerRoute: typeof ManagerRoute
   ResearchRoute: typeof ResearchRoute
@@ -191,6 +204,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LibraryRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/fastclaw': {
+      id: '/fastclaw'
+      path: '/fastclaw'
+      fullPath: '/fastclaw'
+      preLoaderRoute: typeof FastclawRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/docs': {
       id: '/docs'
       path: '/docs'
@@ -218,6 +238,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   DocsRoute: DocsRoute,
+  FastclawRoute: FastclawRoute,
   LibraryRoute: LibraryRoute,
   ManagerRoute: ManagerRoute,
   ResearchRoute: ResearchRoute,

@@ -232,9 +232,46 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
     return id;
   }, []);
 
+  const refreshSessionHistory = useCallback(async () => {
+    const sessionId = sessionIdRef.current;
+    if (!sessionId) return;
+
+    try {
+      const history = await getFastClawSessionHistory(sessionId);
+      const { items, seq } = runsToTranscript(history.runs);
+      const last = history.runs[history.runs.length - 1];
+      seqRef.current = seq;
+      setTranscript(items);
+      setCurrentCommandId(last?.runId ?? null);
+      setPendingConfirmation(null);
+      setError(null);
+      setPhase(
+        last === undefined
+          ? "idle"
+          : isTerminal(last.status)
+            ? phaseFromStatus(last.status)
+            : "streaming",
+      );
+    } catch {
+      // A missed refresh should not replace the live error shown to the user.
+    }
+  }, []);
+
+  const refreshSessionHistorySoon = useCallback(
+    (delayMs = 250) => {
+      window.setTimeout(() => {
+        void refreshSessionHistory();
+      }, delayMs);
+    },
+    [refreshSessionHistory],
+  );
+
   const attachHandlers = useCallback(
     (es: EventSource, runId: string) => {
-      const closeOnTerminal = () => closeStream();
+      const closeOnTerminal = () => {
+        closeStream();
+        refreshSessionHistorySoon();
+      };
       const eventTypes: CommandStreamEventType[] = [
         "thinking",
         "agent_message",
@@ -299,9 +336,10 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
         setPhase((current) => (current === "completed" ? current : "failed"));
         setPendingConfirmation(null);
         closeStream();
+        refreshSessionHistorySoon(1500);
       };
     },
-    [appendEvent, closeStream],
+    [appendEvent, closeStream, refreshSessionHistorySoon],
   );
 
   const openRunStream = useCallback(

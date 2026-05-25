@@ -10,6 +10,7 @@ import {
   LifeBuoy,
   FlaskConical,
   ActivitySquare,
+  Bot,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -47,6 +48,7 @@ const nav: readonly NavEntry[] = [
     children: [{ to: "/manager", labelKey: "sidebar.trainingManager", icon: ActivitySquare }],
   },
   { to: "/settings", labelKey: "sidebar.settings", icon: Settings },
+  { to: "/fastclaw", labelKey: "sidebar.fastclawConfig", icon: Bot },
 ];
 
 export function Sidebar() {

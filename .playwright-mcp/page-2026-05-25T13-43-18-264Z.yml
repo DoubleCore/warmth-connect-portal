@@ -1,0 +1,283 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e5]: H
+        - generic [ref=e6]:
+          - generic [ref=e7]: Hermes AI
+          - generic [ref=e8]: System Active
+      - link "New Research" [ref=e10] [cursor=pointer]:
+        - /url: /
+        - img [ref=e11]
+        - text: New Research
+      - navigation "Main" [ref=e12]:
+        - generic [ref=e13]:
+          - link "Command Center" [ref=e14] [cursor=pointer]:
+            - /url: /
+            - img [ref=e15]
+            - text: Command Center
+          - link "Research" [ref=e18] [cursor=pointer]:
+            - /url: /research
+            - img [ref=e19]
+            - text: Research
+        - generic [ref=e21]:
+          - link "Analyze PDF" [ref=e22] [cursor=pointer]:
+            - /url: /library
+            - img [ref=e23]
+            - text: Analyze PDF
+          - link "RAG Search" [ref=e25] [cursor=pointer]:
+            - /url: /search
+            - img [ref=e26]
+            - text: RAG Search
+        - generic [ref=e29]:
+          - link "Device Manager" [ref=e30] [cursor=pointer]:
+            - /url: /workspace
+            - img [ref=e31]
+            - text: Device Manager
+          - link "Manager" [ref=e34] [cursor=pointer]:
+            - /url: /manager
+            - img [ref=e35]
+            - text: Manager
+        - link "Settings" [ref=e39] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e40]
+          - text: Settings
+        - link "FastClaw Config" [ref=e44] [cursor=pointer]:
+          - /url: /fastclaw
+          - img [ref=e45]
+          - text: FastClaw Config
+      - generic [ref=e48]:
+        - link "Documentation" [ref=e49] [cursor=pointer]:
+          - /url: /docs
+          - img [ref=e50]
+          - text: Documentation
+        - link "Support" [ref=e53] [cursor=pointer]:
+          - /url: "#"
+          - img [ref=e54]
+          - text: Support
+    - generic [ref=e61]:
+      - banner [ref=e62]:
+        - navigation "Main" [ref=e63]:
+          - link "Command" [ref=e64] [cursor=pointer]:
+            - /url: /
+          - link "Library" [ref=e65] [cursor=pointer]:
+            - /url: /library
+          - link "Workspace" [ref=e66] [cursor=pointer]:
+            - /url: /workspace
+        - generic [ref=e67]:
+          - generic [ref=e68]: Welcome
+          - button "Notifications" [ref=e69]:
+            - img [ref=e70]
+          - link "Settings" [ref=e73] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e74]
+          - img "User avatar" [ref=e77]
+      - main [ref=e78]:
+        - generic [ref=e79]:
+          - navigation "Breadcrumb" [ref=e80]:
+            - link "Settings" [ref=e81] [cursor=pointer]:
+              - /url: /settings
+            - img [ref=e82]
+            - generic [ref=e84]: FastClaw
+          - generic [ref=e85]:
+            - generic [ref=e86]:
+              - generic [ref=e87]:
+                - img [ref=e88]
+                - heading "FastClaw Configuration" [level=1] [ref=e91]
+              - paragraph [ref=e92]: Configure the three Hermes-facing FastClaw agents, their skill files, agent markdown, and model API providers.
+            - generic [ref=e93]:
+              - button "Copy CLI" [ref=e94]:
+                - img
+                - text: Copy CLI
+              - button "Save" [ref=e95]:
+                - img
+                - text: Save
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - generic [ref=e99]:
+                  - generic [ref=e100]:
+                    - img [ref=e101]
+                    - heading "Agent Files" [level=2] [ref=e104]
+                  - generic [ref=e105]: 3 agents
+                - generic [ref=e106]:
+                  - tablist [ref=e107]:
+                    - tab "Deployment Agent" [selected] [ref=e108]:
+                      - generic [ref=e109]: Deployment Agent
+                    - tab "Paper Analysis Agent" [ref=e110]:
+                      - generic [ref=e111]: Paper Analysis Agent
+                    - tab "Research Agent" [ref=e112]:
+                      - generic [ref=e113]: Research Agent
+                  - tabpanel "Deployment Agent" [ref=e114]:
+                    - generic [ref=e115]:
+                      - generic [ref=e116]:
+                        - generic [ref=e117]:
+                          - generic [ref=e118]: Agent display name
+                          - textbox "Agent display name" [ref=e119]: Deployment Agent
+                        - generic [ref=e120]:
+                          - generic [ref=e121]: FastClaw agent ID
+                          - textbox "FastClaw agent ID" [ref=e122]:
+                            - /placeholder: agt_...
+                        - generic [ref=e123]:
+                          - generic [ref=e124]: Environment variable
+                          - textbox "Environment variable" [ref=e125]: FASTCLAW_AGENT_DEPLOY
+                        - generic [ref=e126]:
+                          - generic [ref=e127]: Role aliases
+                          - textbox "Role aliases" [ref=e128]: deploy
+                        - generic [ref=e129]:
+                          - generic [ref=e130]: Default model
+                          - combobox "Default model" [ref=e131]:
+                            - img [ref=e132]
+                          - combobox [ref=e134]
+                        - generic [ref=e135]:
+                          - generic [ref=e136]: Skill name
+                          - textbox "Skill name" [ref=e137]: paper-reproduction-deploy
+                      - generic [ref=e138]:
+                        - generic [ref=e139]: Skill file path
+                        - textbox "Skill file path" [ref=e140]: ~/.fastclaw/agents/<agent-id>/agent/skills/paper-reproduction-deploy/SKILL.md
+                      - generic [ref=e141]:
+                        - generic [ref=e142]: SKILL.md
+                        - textbox "SKILL.md" [ref=e143]: "--- name: paper-reproduction-deploy description: Prepare, deploy, and monitor research paper reproduction jobs on available compute devices. --- Use this skill when Hermes needs to turn a paper, repository, device, and reproduction record into an executable training or reproduction run. 1. Verify the paper metadata, repository URL, device status, and reproduction target. 2. Produce setup commands, dependency checks, dataset preparation steps, and launch commands. 3. Stream progress, failures, artifacts, and next actions back to Hermes."
+                      - generic [ref=e144]:
+                        - generic [ref=e145]:
+                          - generic [ref=e146]: Markdown file
+                          - textbox "Markdown file" [ref=e147]: AGENTS.md
+                        - generic [ref=e148]:
+                          - generic [ref=e149]: Markdown path
+                          - textbox "Markdown path" [ref=e150]: ~/.fastclaw/agents/<agent-id>/agent/AGENTS.md
+                      - generic [ref=e151]:
+                        - generic [ref=e152]: AGENTS.md content
+                        - textbox "AGENTS.md content" [ref=e153]: "# Deployment Agent You are the FastClaw deployment agent for Hermes. Focus on runnable reproduction plans, device-aware execution, logs, and recovery steps."
+              - generic [ref=e154]:
+                - generic [ref=e155]:
+                  - generic [ref=e156]:
+                    - img [ref=e157]
+                    - heading "Model API Providers" [level=2] [ref=e160]
+                  - button "Add provider" [ref=e161]:
+                    - img
+                    - text: Add provider
+                - generic [ref=e162]:
+                  - generic [ref=e163]:
+                    - generic [ref=e164]: Global active model
+                    - textbox "Global active model" [ref=e165]:
+                      - /placeholder: provider/model-id
+                      - text: codex/gpt-5.5
+                  - generic [ref=e166]:
+                    - generic [ref=e167]:
+                      - generic [ref=e168]:
+                        - generic [ref=e169]: codex
+                        - generic [ref=e170]: http://127.0.0.1:3000/openai-codex-oauth/v1
+                      - button "Remove provider" [ref=e171]:
+                        - img
+                    - generic [ref=e172]:
+                      - generic [ref=e173]:
+                        - generic [ref=e174]: Provider name
+                        - textbox "Provider name" [ref=e175]:
+                          - /placeholder: openai
+                          - text: codex
+                      - generic [ref=e176]:
+                        - generic [ref=e177]: API base URL
+                        - textbox "API base URL" [ref=e178]:
+                          - /placeholder: https://api.openai.com/v1
+                          - text: http://127.0.0.1:3000/openai-codex-oauth/v1
+                      - generic [ref=e179]:
+                        - generic [ref=e180]: API key
+                        - textbox "API key" [ref=e181]:
+                          - /placeholder: sk-...
+                          - text: "123456"
+                      - generic [ref=e182]:
+                        - generic [ref=e183]: Models
+                        - textbox "Models" [ref=e184]:
+                          - /placeholder: gpt-5.5, gpt-5.4
+                          - text: gpt-5.5, gpt-5.4, gpt-5.3-codex
+                      - generic [ref=e185]:
+                        - generic [ref=e186]: API type
+                        - combobox "API type" [ref=e187]:
+                          - img [ref=e188]
+                        - combobox [ref=e190]
+                      - generic [ref=e191]:
+                        - generic [ref=e192]: Auth type
+                        - combobox "Auth type" [ref=e193]:
+                          - img [ref=e194]
+                        - combobox [ref=e196]
+                  - generic [ref=e197]:
+                    - generic [ref=e198]:
+                      - generic [ref=e199]:
+                        - generic [ref=e200]: kiro
+                        - generic [ref=e201]: http://127.0.0.1:3000/claude-kiro-oauth
+                      - button "Remove provider" [ref=e202]:
+                        - img
+                    - generic [ref=e203]:
+                      - generic [ref=e204]:
+                        - generic [ref=e205]: Provider name
+                        - textbox "Provider name" [ref=e206]:
+                          - /placeholder: openai
+                          - text: kiro
+                      - generic [ref=e207]:
+                        - generic [ref=e208]: API base URL
+                        - textbox "API base URL" [ref=e209]:
+                          - /placeholder: https://api.openai.com/v1
+                          - text: http://127.0.0.1:3000/claude-kiro-oauth
+                      - generic [ref=e210]:
+                        - generic [ref=e211]: API key
+                        - textbox "API key" [ref=e212]:
+                          - /placeholder: sk-...
+                          - text: "123456"
+                      - generic [ref=e213]:
+                        - generic [ref=e214]: Models
+                        - textbox "Models" [ref=e215]:
+                          - /placeholder: gpt-5.5, gpt-5.4
+                          - text: claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5
+                      - generic [ref=e216]:
+                        - generic [ref=e217]: API type
+                        - combobox "API type" [ref=e218]:
+                          - img [ref=e219]
+                        - combobox [ref=e221]
+                      - generic [ref=e222]:
+                        - generic [ref=e223]: Auth type
+                        - combobox "Auth type" [ref=e224]:
+                          - img [ref=e225]
+                        - combobox [ref=e227]
+            - complementary [ref=e228]:
+              - generic [ref=e229]:
+                - generic [ref=e230]:
+                  - img [ref=e231]
+                  - heading "Runtime Mapping" [level=2] [ref=e239]
+                - generic [ref=e240]:
+                  - generic [ref=e241]:
+                    - generic [ref=e242]:
+                      - generic [ref=e243]:
+                        - generic [ref=e244]: Deployment Agent
+                        - generic [ref=e245]: FASTCLAW_AGENT_DEPLOY
+                      - generic [ref=e246]: deploy
+                    - generic [ref=e247]:
+                      - generic [ref=e248]: "id: unset"
+                      - generic [ref=e249]: "model: codex/gpt-5.5"
+                      - generic [ref=e250]: "skill: paper-reproduction-deploy"
+                  - generic [ref=e251]:
+                    - generic [ref=e252]:
+                      - generic [ref=e253]:
+                        - generic [ref=e254]: Paper Analysis Agent
+                        - generic [ref=e255]: FASTCLAW_AGENT_PAPER_ANALYSE
+                      - generic [ref=e256]: analyse, reader
+                    - generic [ref=e257]:
+                      - generic [ref=e258]: "id: unset"
+                      - generic [ref=e259]: "model: kiro/claude-sonnet-4-5"
+                      - generic [ref=e260]: "skill: paper-analysis-rag"
+                  - generic [ref=e261]:
+                    - generic [ref=e262]:
+                      - generic [ref=e263]:
+                        - generic [ref=e264]: Research Agent
+                        - generic [ref=e265]: FASTCLAW_AGENT_RESEARCHER
+                      - generic [ref=e266]: researcher, search
+                    - generic [ref=e267]:
+                      - generic [ref=e268]: "id: unset"
+                      - generic [ref=e269]: "model: codex/gpt-5.5"
+                      - generic [ref=e270]: "skill: paper-research-search"
+              - generic [ref=e271]:
+                - generic [ref=e272]:
+                  - img [ref=e273]
+                  - heading "Generated CLI" [level=2] [ref=e276]
+                - code [ref=e278]: "# FastClaw provider configuration fastclaw agents config <agent> set provider.codex.apiKey 123456 fastclaw agents config <agent> set provider.codex.apiBase http://127.0.0.1:3000/openai-codex-oauth/v1 fastclaw agents config <agent> set provider.codex.apiType openai-chat fastclaw agents config <agent> set provider.codex.authType bearer-token fastclaw agents config <agent> set provider.codex.model gpt-5.5 fastclaw agents config <agent> set provider.codex.model gpt-5.4 fastclaw agents config <agent> set provider.codex.model gpt-5.3-codex fastclaw agents config <agent> set provider.kiro.apiKey 123456 fastclaw agents config <agent> set provider.kiro.apiBase http://127.0.0.1:3000/claude-kiro-oauth fastclaw agents config <agent> set provider.kiro.apiType anthropic-messages fastclaw agents config <agent> set provider.kiro.authType api-key fastclaw agents config <agent> set provider.kiro.model claude-sonnet-4-5 fastclaw agents config <agent> set provider.kiro.model claude-opus-4-5 fastclaw agents config <agent> set provider.kiro.model claude-haiku-4-5 fastclaw agents config <agent> set model codex/gpt-5.5 # Hermes role bindings FASTCLAW_AGENT_DEPLOY=agt_... fastclaw agents config <agent-id> set model codex/gpt-5.5 # skill: ~/.fastclaw/agents/<agent-id>/agent/skills/paper-reproduction-deploy/SKILL.md # markdown: ~/.fastclaw/agents/<agent-id>/agent/AGENTS.md FASTCLAW_AGENT_PAPER_ANALYSE=agt_... fastclaw agents config <agent-id> set model kiro/claude-sonnet-4-5 # skill: ~/.fastclaw/agents/<agent-id>/agent/skills/paper-analysis-rag/SKILL.md # markdown: ~/.fastclaw/agents/<agent-id>/agent/AGENTS.md FASTCLAW_AGENT_RESEARCHER=agt_... fastclaw agents config <agent-id> set model codex/gpt-5.5 # skill: ~/.fastclaw/agents/<agent-id>/agent/skills/paper-research-search/SKILL.md # markdown: ~/.fastclaw/agents/<agent-id>/agent/AGENTS.md"
+  - button "Open assistant" [ref=e279]:
+    - img [ref=e280]
