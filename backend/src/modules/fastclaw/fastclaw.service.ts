@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import { env } from "@/config/env.js";
 import { getDeviceOrThrow } from "@/modules/devices/devices.service.js";
 import * as hostRepo from "@/modules/host-tracking/host-tracking.repository.js";
+import { decodePasswordForSsh } from "@/modules/host-tracking/host-tracking.service.js";
 import * as paperRepo from "@/modules/papers/papers.repository.js";
 import { NotFoundError } from "@/shared/errors.js";
 import {
@@ -148,24 +149,32 @@ export async function buildDeployMessage(input: FastClawDeployInput): Promise<{
   const cred = await hostRepo.getHostCredentialById(input.deviceId);
   if (!cred) throw new NotFoundError("HostCredential", input.deviceId);
 
+  const password = cred.encryptedPassword ? decodePasswordForSsh(cred.encryptedPassword) : null;
+  const authLine = password
+    ? `- 密码：${password}`
+    : cred.keyFile
+      ? `- 私钥路径：${cred.keyFile}`
+      : "- 认证信息：未设置";
+  const sshCommand = password
+    ? "sshpass -p '<password>' ssh -o StrictHostKeyChecking=no -p <port> <username>@<host>"
+    : "ssh -i '<keyFile>' -o StrictHostKeyChecking=no -p <port> <username>@<host>";
+  const loginMode = password ? "密码" : "密钥";
+
   const systemPrompt = `你是一个论文代码部署助手。你的任务是帮助用户将论文的代码部署到指定的 GPU 服务器上。
 
-## SSH 连接信息获取方式
-通过后端 API 查询目标设备的 SSH 凭证（含明文密码）：
-GET http://localhost:8787/api/host-tracking/hosts/${input.deviceId}
-
-返回的 JSON 里包含：host、port、username、password 字段。
-用 sshpass -p '<password>' ssh -o StrictHostKeyChecking=no <username>@<host> 连接。
+## SSH 连接信息
+后端已经从数据库读取并解密目标设备凭证；不要再调用公共 host-tracking API 获取 password，公共 API 不返回明文密码。
+用 ${sshCommand} 连接。
 
 ## 目标设备
 - 名称：${device.name}
 - IP：${cred.host}
 - 用户：${cred.username}
-- 密码：${cred.encryptedPassword ?? "(未设置，请查询 API)"}
+${authLine}
 - SSH 端口：${cred.port}
 
 ## 工作流程
-1. 用密码 SSH 连接到目标设备（sshpass 方式，不要用密钥）
+1. 用${loginMode} SSH 连接到目标设备
 2. 确认 GPU 环境（nvidia-smi）
 3. 克隆论文代码仓库到 ~/LHL/ 目录
 4. 创建虚拟环境并安装依赖
@@ -174,7 +183,6 @@ GET http://localhost:8787/api/host-tracking/hosts/${input.deviceId}
 7. 报告部署结果
 
 ## 注意
-- 一律使用密码登录，不要尝试 SSH 密钥
 - 连接时加 -o StrictHostKeyChecking=no
 - 每完成一步都报告进度
 - 遇到错误分析原因并尝试解决`;
@@ -193,6 +201,7 @@ GET http://localhost:8787/api/host-tracking/hosts/${input.deviceId}
 - 名称：${device.name}
 - IP：${cred.host}
 - 用户：${cred.username}
+- SSH 端口：${cred.port}
 
 请按以下步骤执行：
 1. SSH 连接到目标设备

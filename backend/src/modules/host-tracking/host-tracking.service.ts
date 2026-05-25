@@ -35,6 +35,31 @@ import * as repo from "./host-tracking.repository.js";
 // DTO 序列化
 // ============================================================
 
+const PASSWORD_SECRET_PREFIX = "enc:v1:";
+
+function encodePasswordForStorage(password: string): string {
+  return `${PASSWORD_SECRET_PREFIX}${encryptSecret(password)}`;
+}
+
+export function decodePasswordForSsh(storedPassword: string): string {
+  if (storedPassword.startsWith(PASSWORD_SECRET_PREFIX)) {
+    return decryptSecret(storedPassword.slice(PASSWORD_SECRET_PREFIX.length));
+  }
+
+  if (!env.HOST_CRED_KEY) {
+    return storedPassword;
+  }
+
+  try {
+    return decryptSecret(storedPassword);
+  } catch (err) {
+    if (err instanceof AppError && err.code === "HOST_CRED_DECRYPT_FAILED") {
+      return storedPassword;
+    }
+    throw err;
+  }
+}
+
 export function toHostDto(row: HostCredentialRow): HostDto {
   return {
     deviceId: row.deviceId,
@@ -42,7 +67,6 @@ export function toHostDto(row: HostCredentialRow): HostDto {
     port: row.port,
     username: row.username,
     hasPassword: Boolean(row.encryptedPassword),
-    password: row.encryptedPassword ?? null,
     keyFile: row.keyFile,
     hostLabel: row.hostLabel,
     trackingEnabled: Boolean(row.trackingEnabled),
@@ -124,7 +148,7 @@ export async function createHost(input: CreateHostInput): Promise<HostDto> {
     host: input.host,
     port: input.port,
     username: input.username,
-    encryptedPassword: input.password ?? null,
+    encryptedPassword: input.password ? encodePasswordForStorage(input.password) : null,
     keyFile: input.keyFile ?? null,
     hostLabel: input.hostLabel ?? null,
     trackingEnabled: input.trackingEnabled,
@@ -142,7 +166,7 @@ export async function updateHost(deviceId: string, input: UpdateHostInput): Prom
   if (input.port !== undefined) patch.port = input.port;
   if (input.username !== undefined) patch.username = input.username;
   if (input.password !== undefined) {
-    patch.encryptedPassword = input.password === null ? null : input.password;
+    patch.encryptedPassword = input.password === null ? null : encodePasswordForStorage(input.password);
   }
   if (input.keyFile !== undefined) {
     patch.keyFile = input.keyFile === null ? null : input.keyFile;
@@ -208,11 +232,7 @@ export async function probeHost(
   const log = logger.child({ deviceId: cred.deviceId, host: cred.host, reason: context.reason });
   log.debug("host-tracking probe start");
 
-  // 密码直接从数据库读（明文存储）
-  let password: string | undefined;
-  if (cred.encryptedPassword) {
-    password = cred.encryptedPassword;
-  }
+  const password = cred.encryptedPassword ? decodePasswordForSsh(cred.encryptedPassword) : undefined;
 
   const result: CollectResult = await collectMetrics({
     host: cred.host,
