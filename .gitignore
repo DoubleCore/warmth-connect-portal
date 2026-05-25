@@ -39,6 +39,9 @@ dist-ssr
 # Spec workflow cache
 .spec-workflow/
 
+# Serena local project memories/cache
+.serena/
+
 # Pattern archives
 *-patterns.zip
 *.zip
@@ -51,6 +54,12 @@ backend/.env.local
 backend/node_modules/
 backend/dist/
 backend/nul
+
+# FastClaw local runtime state/build output
+fastclaw/runtime-data/
+fastclaw/dist/
+fastclaw/workspaces/
+fastclaw/agents/*/agent/memory/logs/
 
 # Frontend env
 fronted/.env

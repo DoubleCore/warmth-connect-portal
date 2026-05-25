@@ -20,11 +20,11 @@ export const fastclawChatSchema = z.object({
   /**
    * 可选：按用途选 agent，后端按白名单映射到对应 env 变量。
    * - "deploy"     → FASTCLAW_AGENT_DEPLOY
-   * - "analyse"    → FASTCLAW_AGENT_PAPER_ANALYSE
-   * - "researcher" → FASTCLAW_AGENT_RESEARCHER
+   * - "analyse"/"reader" → FASTCLAW_AGENT_PAPER_ANALYSE（RAG 论文阅读助手）
+   * - "researcher"/"search" → FASTCLAW_AGENT_RESEARCHER（论文搜索助手）
    * 比直接让前端传 agt_xxx 更安全：能锁死同一个会话不会被偷换 agent。
    */
-  agentRole: z.enum(["deploy", "analyse", "researcher"]).optional(),
+  agentRole: z.enum(["deploy", "analyse", "researcher", "reader", "search"]).optional(),
   /**
    * 可选：FastClaw 端会话标识（透传成 X-Fastclaw-Session-Key）。
    * 同一个 sessionKey 让 FastClaw 把多次请求归并到同一个会话窗口。

@@ -38,9 +38,9 @@ const envSchema = z.object({
   FASTCLAW_AGENT_ID: optionalString(),
   /** 论文部署 Agent */
   FASTCLAW_AGENT_DEPLOY: optionalString(),
-  /** 论文解析 Agent */
+  /** RAG 论文阅读 Agent */
   FASTCLAW_AGENT_PAPER_ANALYSE: optionalString(),
-  /** 论文研究/阅读 Agent */
+  /** 论文搜索 Agent */
   FASTCLAW_AGENT_RESEARCHER: optionalString(),
 
   // ---------- RAG LLM / Embedding ----------

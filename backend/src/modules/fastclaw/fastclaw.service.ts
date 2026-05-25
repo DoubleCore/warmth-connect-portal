@@ -65,8 +65,10 @@ function resolveAgentId(input: FastClawChatInput): string | undefined {
     case "deploy":
       return env.FASTCLAW_AGENT_DEPLOY ?? undefined;
     case "analyse":
+    case "reader":
       return env.FASTCLAW_AGENT_PAPER_ANALYSE ?? undefined;
     case "researcher":
+    case "search":
       return env.FASTCLAW_AGENT_RESEARCHER ?? undefined;
     default:
       return undefined;
