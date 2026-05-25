@@ -430,3 +430,86 @@ export type CommandRow = typeof commands.$inferSelect;
 export type NewCommandRow = typeof commands.$inferInsert;
 export type CommandEventRow = typeof commandEvents.$inferSelect;
 export type NewCommandEventRow = typeof commandEvents.$inferInsert;
+
+export const fastclawSessions = sqliteTable(
+  "fastclaw_sessions",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    entry: text("entry"),
+    agentRole: text("agent_role", {
+      enum: ["deploy", "analyse", "researcher", "reader", "search"],
+    }),
+    agentId: text("agent_id"),
+    initialContextJson: text("initial_context_json").notNull().default("{}"),
+    userId: text("user_id"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (t) => ({
+    entryIdx: index("fastclaw_sessions_entry_idx").on(t.entry),
+    agentRoleIdx: index("fastclaw_sessions_agent_role_idx").on(t.agentRole),
+  }),
+);
+
+export const fastclawRuns = sqliteTable(
+  "fastclaw_runs",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => fastclawSessions.id, { onDelete: "cascade" }),
+    userId: text("user_id"),
+    userMessage: text("user_message").notNull(),
+    status: text("status", {
+      enum: ["pending", "running", "completed", "failed", "cancelled"],
+    })
+      .notNull()
+      .default("pending"),
+    agentRole: text("agent_role", {
+      enum: ["deploy", "analyse", "researcher", "reader", "search"],
+    }),
+    agentId: text("agent_id"),
+    contextJson: text("context_json").notNull().default("{}"),
+    resultJson: text("result_json"),
+    errorJson: text("error_json"),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+    updatedAt: text("updated_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (t) => ({
+    sessionIdx: index("fastclaw_runs_session_id_idx").on(t.sessionId),
+    statusIdx: index("fastclaw_runs_status_idx").on(t.status),
+    createdIdx: index("fastclaw_runs_created_at_idx").on(t.createdAt),
+    agentRoleIdx: index("fastclaw_runs_agent_role_idx").on(t.agentRole),
+  }),
+);
+
+export const fastclawEvents = sqliteTable(
+  "fastclaw_events",
+  {
+    id: text("id").primaryKey().$defaultFn(newId),
+    runId: text("run_id")
+      .notNull()
+      .references(() => fastclawRuns.id, { onDelete: "cascade" }),
+    eventType: text("event_type").notNull(),
+    payloadJson: text("payload_json").notNull(),
+    createdAt: text("created_at")
+      .notNull()
+      .default(sql`(CURRENT_TIMESTAMP)`),
+  },
+  (t) => ({
+    runIdx: index("fastclaw_events_run_id_idx").on(t.runId),
+    runCreatedIdx: index("fastclaw_events_run_id_created_at_idx").on(t.runId, t.createdAt),
+  }),
+);
+
+export type FastClawSessionRow = typeof fastclawSessions.$inferSelect;
+export type NewFastClawSessionRow = typeof fastclawSessions.$inferInsert;
+export type FastClawRunRow = typeof fastclawRuns.$inferSelect;
+export type NewFastClawRunRow = typeof fastclawRuns.$inferInsert;
+export type FastClawEventRow = typeof fastclawEvents.$inferSelect;
+export type NewFastClawEventRow = typeof fastclawEvents.$inferInsert;

@@ -1,0 +1,124 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: H
+      - generic [ref=e6]:
+        - generic [ref=e7]: Hermes AI
+        - generic [ref=e8]: System Active
+    - link "New Research" [ref=e10] [cursor=pointer]:
+      - /url: /
+      - img [ref=e11]
+      - text: New Research
+    - navigation "Main" [ref=e12]:
+      - generic [ref=e13]:
+        - link "Command Center" [ref=e14] [cursor=pointer]:
+          - /url: /
+          - img [ref=e15]
+          - text: Command Center
+        - link "Research" [ref=e18] [cursor=pointer]:
+          - /url: /research
+          - img [ref=e19]
+          - text: Research
+      - generic [ref=e21]:
+        - link "Analyze PDF" [ref=e22] [cursor=pointer]:
+          - /url: /library
+          - img [ref=e23]
+          - text: Analyze PDF
+        - link "RAG Search" [ref=e25] [cursor=pointer]:
+          - /url: /search
+          - img [ref=e26]
+          - text: RAG Search
+      - generic [ref=e29]:
+        - link "Device Manager" [ref=e30] [cursor=pointer]:
+          - /url: /workspace
+          - img [ref=e31]
+          - text: Device Manager
+        - link "Manager" [ref=e34] [cursor=pointer]:
+          - /url: /manager
+          - img [ref=e35]
+          - text: Manager
+      - link "Settings" [ref=e39] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e40]
+        - text: Settings
+    - generic [ref=e43]:
+      - link "Documentation" [ref=e44] [cursor=pointer]:
+        - /url: /docs
+        - img [ref=e45]
+        - text: Documentation
+      - link "Support" [ref=e48] [cursor=pointer]:
+        - /url: "#"
+        - img [ref=e49]
+        - text: Support
+  - generic [ref=e56]:
+    - banner [ref=e57]:
+      - navigation "Main" [ref=e58]:
+        - link "Command" [ref=e59] [cursor=pointer]:
+          - /url: /
+        - link "Library" [ref=e60] [cursor=pointer]:
+          - /url: /library
+        - link "Workspace" [ref=e61] [cursor=pointer]:
+          - /url: /workspace
+      - generic [ref=e62]:
+        - generic [ref=e63]: Welcome
+        - button "Notifications" [ref=e64]:
+          - img [ref=e65]
+        - link "Settings" [ref=e68] [cursor=pointer]:
+          - /url: /settings
+          - img [ref=e69]
+        - img "User avatar" [ref=e72]
+    - main [ref=e73]:
+      - generic [ref=e74]:
+        - generic [ref=e75]:
+          - generic [ref=e76]:
+            - heading "Research Session" [level=1] [ref=e77]
+            - generic [ref=e78]:
+              - generic [ref=e79]: "Model:"
+              - generic [ref=e80]: FASTCLAW-SEARCH
+          - generic [ref=e81]:
+            - generic [ref=e82]:
+              - img [ref=e83]
+              - text: Idle
+            - button "New session" [ref=e86]:
+              - img [ref=e87]
+              - text: New session
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e91]:
+              - img [ref=e93]
+              - heading "Nothing here yet" [level=2] [ref=e96]
+              - paragraph [ref=e97]: Send a command from the Command Center home page to start a session.
+            - generic [ref=e98]:
+              - img [ref=e99]
+              - generic [ref=e102]: Follow-up instruction
+              - textbox "Follow-up instruction" [ref=e103]:
+                - /placeholder: Ask a follow-up…
+              - button "Attach a document" [disabled] [ref=e104]:
+                - img [ref=e105]
+              - button "Send follow-up" [disabled] [ref=e107]:
+                - img [ref=e108]
+          - complementary [ref=e111]:
+            - generic [ref=e114]:
+              - generic [ref=e115]: Current Command
+              - heading "Idle" [level=3] [ref=e116]
+              - generic [ref=e118]: No command yet
+            - generic [ref=e119]:
+              - generic [ref=e121]: Live Stream
+              - generic [ref=e123]: 0 events received
+              - generic [ref=e124]: Waiting for Hermes events…
+            - generic [ref=e125]:
+              - generic [ref=e126]: Execution Context
+              - generic [ref=e127]:
+                - generic [ref=e128]:
+                  - generic [ref=e129]: Turns
+                  - generic [ref=e130]: "0"
+                - generic [ref=e131]:
+                  - generic [ref=e132]: Channel
+                  - generic [ref=e133]: SSE
+              - generic [ref=e134]:
+                - button "New command" [disabled] [ref=e135]:
+                  - img [ref=e136]
+                  - text: New command
+                - button "New session" [ref=e139]:
+                  - img [ref=e140]
+                  - text: New session

@@ -23,20 +23,22 @@ import { Shell } from "@/components/hermes/Shell";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { useMainCommandStream } from "@/hooks/command-stream-context";
-import type { ActiveConfirmation, CommandTranscriptItem } from "@/hooks/use-command-stream";
+import {
+  useFastClawResearch,
+  type FastClawResearchConfirmation,
+  type FastClawResearchTranscriptItem,
+} from "@/hooks/use-fastclaw-research";
 import type { CommandRuntimePhase, CommandStreamEvent } from "@/types/command";
 
 /**
- * Command Center 的"研究会话"子页面。
+ * FastClaw 论文搜索助手的"研究会话"子页面。
  *
  * UI 与 /search 页面对齐：顶部自定义 header、左侧对话气泡流、右侧上下文面板、
- * 底部药丸输入条。数据源仍然是 MainCommandStreamProvider 共享的 Hermes 指令流，
- * 不会读 /api/rag。
+ * 底部药丸输入条。数据源来自 FastClaw researcher/search agent。
  *
  * 每一轮对话由两个气泡组成：
  *   1. AgentAvatar + 用户原始输入（镜像 /search 的排版）
- *   2. UserAvatar + Hermes 的思考 / 工具调用 / 最终结果（按顺序渲染事件流）
+ *   2. UserAvatar + FastClaw 的回答 / 工具过程 / 最终结果（按顺序渲染事件流）
  *
  * 右侧三个卡片：
  *   - Current Command: phase / commandId / 最近工具
@@ -46,10 +48,10 @@ import type { CommandRuntimePhase, CommandStreamEvent } from "@/types/command";
 export const Route = createFileRoute("/research")({
   head: () => ({
     meta: [
-      { title: "Research — Hermes AI" },
+      { title: "Research — FastClaw" },
       {
         name: "description",
-        content: "Follow Hermes Agent through a live research session.",
+        content: "Follow the FastClaw paper research agent through a live session.",
       },
     ],
   }),
@@ -58,7 +60,7 @@ export const Route = createFileRoute("/research")({
 
 function ResearchPage() {
   const { t } = useI18n();
-  const command = useMainCommandStream();
+  const command = useFastClawResearch();
   const [draft, setDraft] = useState("");
 
   const isBusy =
@@ -119,7 +121,7 @@ function ResearchPage() {
             <span className="flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-muted-foreground">
               <span className="opacity-70">{t("search.modelLabel")}</span>
               <span className="rounded-md bg-secondary/60 px-2 py-1 font-mono text-[11px] text-foreground">
-                HERMES-AGENT
+                FASTCLAW-SEARCH
               </span>
             </span>
           </div>
@@ -127,7 +129,7 @@ function ResearchPage() {
             <PhaseBadge phase={command.phase} />
             {/*
              * New Session：清掉 sessionIdRef 和 transcript，下一次 run() 重新
-             * POST /api/command/sessions。busy 时禁用，避免半途打断。
+             * 新建 FastClaw 论文搜索会话。busy 时禁用，避免半途打断。
              */}
             <button
               type="button"
@@ -248,10 +250,10 @@ type ConversationTurnData = {
   /** 用户 transcript 条目的 id，用作 React key；未配对用户消息时可能为 null。 */
   userId: string | null;
   userMessage: string | null;
-  events: Extract<CommandTranscriptItem, { kind: "event" }>[];
+  events: Extract<FastClawResearchTranscriptItem, { kind: "event" }>[];
 };
 
-function groupTurns(transcript: CommandTranscriptItem[]): ConversationTurnData[] {
+function groupTurns(transcript: FastClawResearchTranscriptItem[]): ConversationTurnData[] {
   const turns: ConversationTurnData[] = [];
   let current: ConversationTurnData | null = null;
   for (const item of transcript) {
@@ -297,7 +299,7 @@ function ConversationTurn({
         </div>
       ) : null}
 
-      {/* 第二行：助手（Hermes）回答，按事件顺序渲染 */}
+      {/* 第二行：助手（FastClaw）回答，按事件顺序渲染 */}
       <div className="flex items-start gap-3">
         <UserAvatar />
         <div className="flex-1 space-y-3">
@@ -704,7 +706,7 @@ function ConfirmationCard({
   onConfirm,
   onCancel,
 }: {
-  confirmation: ActiveConfirmation;
+  confirmation: FastClawResearchConfirmation;
   onConfirm: () => void;
   onCancel: () => void;
 }) {

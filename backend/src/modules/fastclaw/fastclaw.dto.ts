@@ -1,4 +1,14 @@
 import { z } from "zod";
+import type { CommandStreamEvent } from "@/modules/command/command.dto.js";
+
+export const fastclawAgentRoleSchema = z.enum([
+  "deploy",
+  "analyse",
+  "researcher",
+  "reader",
+  "search",
+]);
+export type FastClawAgentRole = z.infer<typeof fastclawAgentRoleSchema>;
 
 // ---------- 请求 ----------
 
@@ -24,7 +34,7 @@ export const fastclawChatSchema = z.object({
    * - "researcher"/"search" → FASTCLAW_AGENT_RESEARCHER（论文搜索助手）
    * 比直接让前端传 agt_xxx 更安全：能锁死同一个会话不会被偷换 agent。
    */
-  agentRole: z.enum(["deploy", "analyse", "researcher", "reader", "search"]).optional(),
+  agentRole: fastclawAgentRoleSchema.optional(),
   /**
    * 可选：FastClaw 端会话标识（透传成 X-Fastclaw-Session-Key）。
    * 同一个 sessionKey 让 FastClaw 把多次请求归并到同一个会话窗口。
@@ -76,3 +86,75 @@ export const fastclawDeploySchema = z.object({
 });
 
 export type FastClawDeployInput = z.infer<typeof fastclawDeploySchema>;
+
+// ---------- Persistent FastClaw sessions ----------
+
+export const createFastClawSessionSchema = z
+  .object({
+    entry: z.string().trim().min(1).optional(),
+    initialContext: z.record(z.unknown()).default({}),
+    agentRole: fastclawAgentRoleSchema.optional(),
+    agentId: z.string().trim().min(1).optional(),
+  })
+  .default({ initialContext: {} });
+
+export type CreateFastClawSessionInput = z.infer<typeof createFastClawSessionSchema>;
+
+export const sendFastClawMessageSchema = z.object({
+  message: z.string().trim().min(1, "message cannot be empty"),
+  context: z.record(z.unknown()).default({}),
+  systemPrompt: z.string().optional(),
+  agentRole: fastclawAgentRoleSchema.optional(),
+  agentId: z.string().trim().min(1).optional(),
+});
+
+export type SendFastClawMessageInput = z.infer<typeof sendFastClawMessageSchema>;
+
+export const fastclawRunStatusEnum = z.enum([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+  "cancelled",
+]);
+export type FastClawRunStatus = z.infer<typeof fastclawRunStatusEnum>;
+
+export type FastClawSessionDto = {
+  sessionId: string;
+  entry: string | null;
+  agentRole: FastClawAgentRole | null;
+  agentId: string | null;
+  createdAt: string;
+};
+
+export type FastClawRunResponseDto = {
+  runId: string;
+  status: FastClawRunStatus;
+  streamUrl: string | null;
+  message?: string;
+  result?: unknown;
+  error?: {
+    code?: string;
+    message: string;
+  };
+};
+
+export type FastClawHistoryRunDto = {
+  runId: string;
+  userMessage: string;
+  status: FastClawRunStatus;
+  agentRole: FastClawAgentRole | null;
+  agentId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  events: CommandStreamEvent[];
+};
+
+export type FastClawSessionHistoryDto = {
+  sessionId: string;
+  entry: string | null;
+  agentRole: FastClawAgentRole | null;
+  agentId: string | null;
+  createdAt: string;
+  runs: FastClawHistoryRunDto[];
+};

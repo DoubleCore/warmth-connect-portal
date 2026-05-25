@@ -1,11 +1,17 @@
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { Logger } from "pino";
 import { createRouter } from "@/shared/context.js";
-import { ok } from "@/shared/response.js";
+import { created, ok } from "@/shared/response.js";
 import { zv } from "@/shared/validator.js";
 import { baseLogger } from "@/shared/logger.js";
-import { fastclawChatSchema, fastclawDeploySchema } from "./fastclaw.dto.js";
+import {
+  createFastClawSessionSchema,
+  fastclawChatSchema,
+  fastclawDeploySchema,
+  sendFastClawMessageSchema,
+} from "./fastclaw.dto.js";
 import type { FastClawStreamChunk } from "./fastclaw.client.js";
+import { fastclawRunEventBus, type FastClawBusEvent } from "./fastclaw.bus.js";
 import * as service from "./fastclaw.service.js";
 
 /**
@@ -17,6 +23,133 @@ import * as service from "./fastclaw.service.js";
  *   GET  /api/fastclaw/ping          FastClaw 健康检查
  */
 export const fastclawRouter = createRouter();
+
+// ---------- Persistent sessions / runs ----------
+
+fastclawRouter.post("/sessions", zv("json", createFastClawSessionSchema), async (c) => {
+  const body = c.req.valid("json");
+  const session = await service.createSession(body);
+  return created(c, session);
+});
+
+fastclawRouter.get("/sessions/:sessionId/history", async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const history = await service.getSessionHistory(sessionId);
+  return ok(c, history);
+});
+
+fastclawRouter.post(
+  "/sessions/:sessionId/messages",
+  zv("json", sendFastClawMessageSchema),
+  async (c) => {
+    const sessionId = c.req.param("sessionId");
+    const body = c.req.valid("json");
+    const logger = c.get("logger") ?? baseLogger;
+    const result = await service.sendPersistentMessage(sessionId, body, logger);
+    return ok(c, result);
+  },
+);
+
+fastclawRouter.post("/sessions/:sessionId/deploy", zv("json", fastclawDeploySchema), async (c) => {
+  const sessionId = c.req.param("sessionId");
+  const body = c.req.valid("json");
+  const logger = c.get("logger") ?? baseLogger;
+  const result = await service.startPersistentDeploy(sessionId, body, logger);
+  return ok(c, result);
+});
+
+fastclawRouter.get("/runs/:runId/events", async (c) => {
+  const runId = c.req.param("runId");
+  const events = await service.listEvents(runId);
+  return ok(c, { runId, events });
+});
+
+fastclawRouter.get("/runs/:runId/stream", async (c) => {
+  const runId = c.req.param("runId");
+  const logger = (c.get("logger") ?? baseLogger).child({ runId, route: "fastclaw-run-sse" });
+  await service.getRunOrThrow(runId);
+  const lastEventId = c.req.header("last-event-id") ?? undefined;
+
+  return streamSSE(c, async (stream) => {
+    const abortSignal = c.req.raw.signal;
+    let ended = false;
+    let heartbeat: NodeJS.Timeout | null = null;
+    let unsubscribe: (() => void) | null = null;
+
+    const closeStream = async () => {
+      if (ended) return;
+      ended = true;
+      if (heartbeat) {
+        clearInterval(heartbeat);
+        heartbeat = null;
+      }
+      if (unsubscribe) {
+        unsubscribe();
+        unsubscribe = null;
+      }
+      try {
+        await stream.writeSSE({ event: "end", data: "{}" });
+      } catch {
+        // client disconnected
+      }
+    };
+
+    const onAbort = () => {
+      logger.debug("FastClaw run SSE client aborted");
+      void closeStream();
+    };
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+
+    try {
+      const replayRows = await service.replayEvents(runId, lastEventId);
+      for (const row of replayRows) {
+        const event = service.rowToStreamEvent(row);
+        if (!event) continue;
+        await stream.writeSSE({
+          id: row.id,
+          event: event.type,
+          data: JSON.stringify(event),
+        });
+      }
+
+      const terminal: ReadonlyArray<string> = ["completed", "failed", "cancelled"];
+      const latestRun = await service.getRunOrThrow(runId);
+      if (terminal.includes(latestRun.status)) {
+        await closeStream();
+        return;
+      }
+
+      heartbeat = setInterval(() => {
+        stream.writeSSE({ event: "ping", data: "{}" }).catch(() => {
+          // The abort handler closes the stream.
+        });
+      }, 15_000);
+
+      await new Promise<void>((resolve) => {
+        unsubscribe = fastclawRunEventBus.subscribe(runId, (event: FastClawBusEvent) => {
+          if (event.kind === "end") {
+            resolve();
+            return;
+          }
+          const streamEvent = service.rowToStreamEvent(event.row);
+          if (!streamEvent) return;
+          stream
+            .writeSSE({
+              id: event.row.id,
+              event: streamEvent.type,
+              data: JSON.stringify(streamEvent),
+            })
+            .catch(() => resolve());
+        });
+
+        abortSignal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    } finally {
+      abortSignal.removeEventListener("abort", onAbort);
+      await closeStream();
+    }
+  });
+});
 
 type StreamState = {
   ended: boolean;

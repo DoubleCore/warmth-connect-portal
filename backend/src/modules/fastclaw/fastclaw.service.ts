@@ -5,16 +5,26 @@ import * as hostRepo from "@/modules/host-tracking/host-tracking.repository.js";
 import { decodePasswordForSsh } from "@/modules/host-tracking/host-tracking.service.js";
 import * as paperRepo from "@/modules/papers/papers.repository.js";
 import { NotFoundError } from "@/shared/errors.js";
+import { baseLogger } from "@/shared/logger.js";
+import type { CommandStreamEvent } from "@/modules/command/command.dto.js";
 import {
   fastclawClient,
   type FastClawMessage,
   type FastClawStreamChunk,
 } from "./fastclaw.client.js";
 import { FastClawError } from "./fastclaw.client.js";
+import { fastclawRunEventBus } from "./fastclaw.bus.js";
+import * as repo from "./fastclaw.repository.js";
+import type { FastClawEventRowWithSeq } from "./fastclaw.repository.js";
 import type {
+  CreateFastClawSessionInput,
   FastClawChatInput,
   FastClawChatResponseDto,
   FastClawDeployInput,
+  FastClawRunResponseDto,
+  FastClawSessionDto,
+  FastClawSessionHistoryDto,
+  SendFastClawMessageInput,
 } from "./fastclaw.dto.js";
 
 /**
@@ -59,7 +69,9 @@ function buildMessages(input: FastClawChatInput): FastClawMessage[] {
  * 仍然支持，但前端的「部署对话」走 agentRole 更稳——env 里 FASTCLAW_AGENT_ID
  * 一变，agentId 不显式指定就会跟着漂，那正是 manager 出过的 bug。
  */
-function resolveAgentId(input: FastClawChatInput): string | undefined {
+export function resolveAgentId(
+  input: Pick<FastClawChatInput, "agentId" | "agentRole">,
+): string | undefined {
   if (input.agentId) return input.agentId;
   switch (input.agentRole) {
     case "deploy":
@@ -73,6 +85,16 @@ function resolveAgentId(input: FastClawChatInput): string | undefined {
     default:
       return undefined;
   }
+}
+
+function shouldUseWebChatStream(agentRole: FastClawChatInput["agentRole"]): boolean {
+  return (
+    agentRole === "deploy" ||
+    agentRole === "analyse" ||
+    agentRole === "reader" ||
+    agentRole === "researcher" ||
+    agentRole === "search"
+  );
 }
 
 /**
@@ -108,10 +130,10 @@ export async function chatStream(
 ): Promise<AsyncIterable<FastClawStreamChunk>> {
   ensureConfigured();
 
-  if (input.agentRole === "deploy") {
+  if (shouldUseWebChatStream(input.agentRole)) {
     return fastclawClient.webChatStream(input.message, logger, {
       agentId: resolveAgentId(input),
-      sessionKey: input.sessionKey ?? `wcp-deploy-chat-${Date.now()}`,
+      sessionKey: input.sessionKey ?? `wcp-${input.agentRole ?? "agent"}-chat-${Date.now()}`,
     });
   }
 
@@ -139,6 +161,7 @@ export async function ping(logger: Logger): Promise<boolean> {
 export async function buildDeployMessage(input: FastClawDeployInput): Promise<{
   message: string;
   systemPrompt: string;
+  displayMessage: string;
 }> {
   // 获取论文信息
   const paper = await paperRepo.getPaperById(input.paperId);
@@ -214,7 +237,11 @@ ${authLine}
 
 如果遇到问题请告诉我。`;
 
-  return { message, systemPrompt };
+  return {
+    message,
+    systemPrompt,
+    displayMessage: `部署论文《${paper.title}》到设备《${device.name}》`,
+  };
 }
 
 /**
@@ -269,4 +296,370 @@ export async function deployChatStream(
     agentId: env.FASTCLAW_AGENT_DEPLOY,
     sessionKey: input.sessionKey ?? input.reproductionId,
   });
+}
+
+// ---------- Persistent FastClaw sessions ----------
+
+type HistoryTurn = { role: "user" | "assistant"; content: string };
+
+const SESSION_KEY_PREFIX = "wcp-fastclaw";
+
+export async function createSession(
+  input: CreateFastClawSessionInput,
+): Promise<FastClawSessionDto> {
+  const row = await repo.insertSession({
+    entry: input.entry ?? null,
+    initialContext: input.initialContext ?? {},
+    agentRole: input.agentRole ?? null,
+    agentId: input.agentId ?? null,
+    userId: null,
+  });
+  return {
+    sessionId: row.id,
+    entry: row.entry,
+    agentRole: row.agentRole,
+    agentId: row.agentId,
+    createdAt: row.createdAt,
+  };
+}
+
+export async function getSessionOrThrow(sessionId: string) {
+  const row = await repo.getSessionById(sessionId);
+  if (!row) throw new NotFoundError("FastClawSession", sessionId);
+  return row;
+}
+
+export async function getRunOrThrow(runId: string) {
+  const row = await repo.getRunById(runId);
+  if (!row) throw new NotFoundError("FastClawRun", runId);
+  return row;
+}
+
+export function buildRunStreamUrl(runId: string): string {
+  return `/api/fastclaw/runs/${runId}/stream`;
+}
+
+export async function sendPersistentMessage(
+  sessionId: string,
+  input: SendFastClawMessageInput,
+  logger: Logger,
+): Promise<FastClawRunResponseDto> {
+  ensureConfigured();
+
+  const session = await getSessionOrThrow(sessionId);
+  const agentRole = session.agentRole ?? input.agentRole ?? null;
+  const explicitAgentId = session.agentId ?? input.agentId ?? null;
+  const agentId = explicitAgentId ?? resolveAgentId({ agentRole: agentRole ?? undefined }) ?? null;
+
+  const context = {
+    ...(input.context ?? {}),
+    ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
+  };
+
+  const run = await repo.insertRun({
+    sessionId,
+    userId: null,
+    userMessage: input.message,
+    context,
+    agentRole,
+    agentId,
+  });
+
+  const runLogger = logger.child({ fastclawRunId: run.id, fastclawSessionId: sessionId });
+  runLogger.info(
+    { agentRole, agentId, messagePreview: input.message.slice(0, 160) },
+    "FastClaw run accepted",
+  );
+
+  void runFastClawRun({
+    runId: run.id,
+    sessionId,
+    runtimeMessage: input.message,
+    logger: runLogger,
+  });
+
+  return {
+    runId: run.id,
+    status: "running",
+    streamUrl: buildRunStreamUrl(run.id),
+    message: run.userMessage,
+  };
+}
+
+export async function startPersistentDeploy(
+  sessionId: string,
+  input: FastClawDeployInput,
+  logger: Logger,
+): Promise<FastClawRunResponseDto> {
+  ensureConfigured();
+
+  await getSessionOrThrow(sessionId);
+  const built = await buildDeployMessage(input);
+  const agentId = env.FASTCLAW_AGENT_DEPLOY ?? resolveAgentId({ agentRole: "deploy" }) ?? null;
+
+  const run = await repo.insertRun({
+    sessionId,
+    userId: null,
+    userMessage: built.displayMessage,
+    context: {
+      reproductionId: input.reproductionId,
+      paperId: input.paperId,
+      deviceId: input.deviceId,
+      runtimeMessage: built.message,
+    },
+    agentRole: "deploy",
+    agentId,
+  });
+
+  const runLogger = logger.child({ fastclawRunId: run.id, fastclawSessionId: sessionId });
+  runLogger.info(
+    { paperId: input.paperId, deviceId: input.deviceId, reproductionId: input.reproductionId },
+    "FastClaw deploy run accepted",
+  );
+
+  void runFastClawRun({
+    runId: run.id,
+    sessionId,
+    runtimeMessage: built.message,
+    logger: runLogger,
+  });
+
+  return {
+    runId: run.id,
+    status: "running",
+    streamUrl: buildRunStreamUrl(run.id),
+    message: run.userMessage,
+  };
+}
+
+type RunFastClawInput = {
+  runId: string;
+  sessionId: string;
+  runtimeMessage: string;
+  logger: Logger;
+};
+
+class FastClawDeltaAggregator {
+  private buffer = "";
+  private readonly maxChars = 1200;
+
+  append(delta: string): CommandStreamEvent | null {
+    if (!delta) return null;
+    this.buffer += delta;
+    if (this.buffer.length >= this.maxChars) return this.flush();
+    return null;
+  }
+
+  flush(): CommandStreamEvent | null {
+    if (!this.buffer) return null;
+    const event: CommandStreamEvent = {
+      type: "agent_message",
+      message: this.buffer,
+    };
+    this.buffer = "";
+    return event;
+  }
+}
+
+async function runFastClawRun(input: RunFastClawInput): Promise<void> {
+  const { runId, sessionId, runtimeMessage, logger } = input;
+  const aggregator = new FastClawDeltaAggregator();
+  let fullContent = "";
+  let finalized = false;
+
+  const flushDeltas = async (): Promise<void> => {
+    const event = aggregator.flush();
+    if (event) await appendAndBroadcast(runId, event);
+  };
+
+  try {
+    const run = await getRunOrThrow(runId);
+    await repo.updateRunStatus(runId, "running");
+    const history = await buildConversationHistory(sessionId, runId, logger);
+    const context = parseContext(run.contextJson);
+    const systemPrompt =
+      typeof context.systemPrompt === "string" ? context.systemPrompt : undefined;
+
+    const chunks = await chatStream(
+      {
+        message: runtimeMessage,
+        ...(history.length > 0 ? { history } : {}),
+        ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+        stream: true,
+        sessionKey: `${SESSION_KEY_PREFIX}-${sessionId}`,
+        ...(run.agentRole !== null ? { agentRole: run.agentRole } : {}),
+        ...(run.agentId !== null ? { agentId: run.agentId } : {}),
+      },
+      logger,
+    );
+
+    for await (const chunk of chunks) {
+      if (chunk.content) {
+        fullContent += chunk.content;
+        const event = aggregator.append(chunk.content);
+        if (event) await appendAndBroadcast(runId, event);
+      }
+      if (chunk.finishReason) break;
+    }
+
+    await flushDeltas();
+    const final: CommandStreamEvent = {
+      type: "final",
+      result: { status: "completed" },
+    };
+    await appendAndBroadcast(runId, final);
+    await repo.finalizeRun(runId, {
+      status: "completed",
+      result: { output: fullContent },
+    });
+    finalized = true;
+  } catch (err) {
+    const mapped: CommandStreamEvent =
+      err instanceof FastClawError
+        ? { type: "error", code: err.code, message: err.message }
+        : {
+            type: "error",
+            code: "FASTCLAW_RUN_FAILED",
+            message: err instanceof Error ? err.message : "FastClaw run failed",
+          };
+
+    try {
+      await flushDeltas();
+      await appendAndBroadcast(runId, mapped);
+      await repo.finalizeRun(runId, {
+        status: "failed",
+        error: {
+          message: mapped.message,
+          ...(mapped.code !== undefined ? { code: mapped.code } : {}),
+        },
+      });
+      finalized = true;
+    } catch (inner) {
+      logger.error({ err: inner }, "Failed to persist FastClaw run failure");
+    }
+
+    logger.warn({ err, code: mapped.code }, "FastClaw run failed");
+  } finally {
+    fastclawRunEventBus.publishEnd(runId);
+    if (!finalized) {
+      logger.warn("FastClaw run exited without finalizing status");
+    }
+  }
+}
+
+async function buildConversationHistory(
+  sessionId: string,
+  excludeRunId: string,
+  logger: Logger,
+): Promise<HistoryTurn[]> {
+  const rows = await repo.listRunsBySession(sessionId, excludeRunId);
+  const history: HistoryTurn[] = [];
+  for (const row of rows) {
+    if (row.status !== "completed") continue;
+    const assistantText = extractAssistantText(row.resultJson);
+    if (!assistantText) continue;
+    history.push({ role: "user", content: row.userMessage });
+    history.push({ role: "assistant", content: assistantText });
+  }
+  if (history.length > 0) {
+    logger.debug({ turns: history.length }, "Assembled FastClaw conversation history");
+  }
+  return history;
+}
+
+function extractAssistantText(resultJson: string | null): string | null {
+  if (!resultJson) return null;
+  try {
+    const parsed = JSON.parse(resultJson) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out = (parsed as { output?: unknown }).output;
+      if (typeof out === "string" && out.trim().length > 0) return out;
+    }
+    if (typeof parsed === "string" && parsed.trim().length > 0) return parsed;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function parseContext(contextJson: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(contextJson) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function appendAndBroadcast(
+  runId: string,
+  event: CommandStreamEvent,
+): Promise<FastClawEventRowWithSeq> {
+  const row = await repo.appendEvent(runId, event);
+  fastclawRunEventBus.publishEvent(runId, row);
+  return row;
+}
+
+export async function replayEvents(
+  runId: string,
+  lastEventId?: string,
+): Promise<FastClawEventRowWithSeq[]> {
+  if (!lastEventId) return repo.listEventsByRun(runId);
+  const cursor = await repo.getEventById(lastEventId);
+  if (!cursor || cursor.runId !== runId) {
+    baseLogger.warn({ runId, lastEventId }, "Invalid FastClaw Last-Event-ID");
+    return repo.listEventsByRun(runId);
+  }
+  return repo.listEventsAfter(runId, cursor.seq);
+}
+
+export function rowToStreamEvent(row: FastClawEventRowWithSeq): CommandStreamEvent | null {
+  try {
+    return JSON.parse(row.payloadJson) as CommandStreamEvent;
+  } catch {
+    return null;
+  }
+}
+
+export async function listEvents(runId: string): Promise<CommandStreamEvent[]> {
+  await getRunOrThrow(runId);
+  const rows = await repo.listEventsByRun(runId);
+  return rows.map(rowToStreamEvent).filter((event): event is CommandStreamEvent => event !== null);
+}
+
+export async function getSessionHistory(sessionId: string): Promise<FastClawSessionHistoryDto> {
+  const session = await getSessionOrThrow(sessionId);
+  const runRows = await repo.listRunsBySession(sessionId);
+
+  const eventsByRun = new Map<string, CommandStreamEvent[]>();
+  if (runRows.length > 0) {
+    const eventRows = await repo.listEventsByRunIds(runRows.map((row) => row.id));
+    for (const row of eventRows) {
+      const event = rowToStreamEvent(row);
+      if (!event) continue;
+      const bucket = eventsByRun.get(row.runId);
+      if (bucket) bucket.push(event);
+      else eventsByRun.set(row.runId, [event]);
+    }
+  }
+
+  return {
+    sessionId: session.id,
+    entry: session.entry,
+    agentRole: session.agentRole,
+    agentId: session.agentId,
+    createdAt: session.createdAt,
+    runs: runRows.map((row) => ({
+      runId: row.id,
+      userMessage: row.userMessage,
+      status: row.status,
+      agentRole: row.agentRole,
+      agentId: row.agentId,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      events: eventsByRun.get(row.id) ?? [],
+    })),
+  };
 }
