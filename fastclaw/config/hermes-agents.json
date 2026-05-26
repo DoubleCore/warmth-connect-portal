@@ -1,0 +1,44 @@
+{
+  "defaultAgentId": "agt_f908ad32af3120090a37",
+  "providers": {
+    "openai": {
+      "apiKey": "$AGENT_API_KEY",
+      "apiBase": "$AGENT_API_BASE"
+    }
+  },
+  "agents": [
+    {
+      "id": "agt_f908ad32af3120090a37",
+      "role": "paper-search",
+      "name": "论文搜索助手",
+      "model": "openai/$AGENT_MODEL",
+      "maxTokens": 8192,
+      "temperature": 0.4,
+      "maxToolIterations": 20,
+      "home": "../agents/agt_f908ad32af3120090a37/agent",
+      "workspace": "../workspaces/agt_f908ad32af3120090a37"
+    },
+    {
+      "id": "agt_18b2eb56cb44f511848e",
+      "role": "rag-paper-reader",
+      "name": "RAG 论文阅读助手",
+      "model": "openai/$AGENT_MODEL",
+      "maxTokens": 8192,
+      "temperature": 0.3,
+      "maxToolIterations": 20,
+      "home": "../agents/agt_18b2eb56cb44f511848e/agent",
+      "workspace": "../workspaces/agt_18b2eb56cb44f511848e"
+    },
+    {
+      "id": "agt_44d05b7677054cebfdad",
+      "role": "paper-deploy",
+      "name": "论文部署助手",
+      "model": "openai/$AGENT_MODEL",
+      "maxTokens": 8192,
+      "temperature": 0.2,
+      "maxToolIterations": 30,
+      "home": "../agents/agt_44d05b7677054cebfdad/agent",
+      "workspace": "../workspaces/agt_44d05b7677054cebfdad"
+    }
+  ]
+}

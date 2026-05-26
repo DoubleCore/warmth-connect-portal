@@ -1,0 +1,5 @@
+- [x] Phase 1: 准备 — 确认论文 repoUrl、设备状态、创建复现记录
+- [ ] Phase 2: 环境搭建 — SSH 到设备，git clone，创建 conda/venv，装依赖
+- [ ] Phase 3: 训练启动 — nohup 启动训练，记录 PID
+- [ ] Phase 4: 监控 — tail 日志，nvidia-smi，更新 progress
+- [ ] Phase 5: 收尾 — 打包结果，PATCH 后端状态

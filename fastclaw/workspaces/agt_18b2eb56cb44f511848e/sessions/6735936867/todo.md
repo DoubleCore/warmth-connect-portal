@@ -1,0 +1,6 @@
+- [ ] 补全 SGC repoUrl
+- [ ] 补全 LightGCN repoUrl
+- [ ] 补全 ROCKET repoUrl
+- [ ] 补全 SimpleAT repoUrl
+- [ ] 补全 MINIROCKET repoUrl
+- [ ] 写入数据库并验证
