@@ -16,10 +16,6 @@ import { logger } from "@/shared/logger.js";
  * profile row id = 1) before inserting.
  * Running this script multiple times will top up any missing sample data
  * without duplicating existing rows.
- *
- * 注意：Hermes 指令中心的 commands / command_sessions / command_events 三张
- * 表刻意不在 seed 范围内——那是用户真实会话轨迹，seed 进去只会让排障更
- * 困难（看到"示例会话"会误以为是自己的历史）。
  */
 
 type PaperSeed = {

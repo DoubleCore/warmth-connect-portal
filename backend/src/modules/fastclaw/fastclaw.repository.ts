@@ -8,8 +8,7 @@ import {
   type FastClawRunRow,
   type FastClawSessionRow,
 } from "@/db/schema.js";
-import type { FastClawAgentRole, FastClawRunStatus } from "./fastclaw.dto.js";
-import type { CommandStreamEvent } from "@/modules/command/command.dto.js";
+import type { FastClawAgentRole, FastClawRunStatus, CommandStreamEvent } from "./fastclaw.dto.js";
 
 export type FastClawEventRowWithSeq = FastClawEventRow & { seq: number };
 

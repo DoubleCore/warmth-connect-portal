@@ -1,5 +1,4 @@
 import { z } from "zod";
-import type { CommandStreamEvent } from "@/modules/command/command.dto.js";
 
 export const fastclawAgentRoleSchema = z.enum([
   "deploy",
@@ -158,3 +157,49 @@ export type FastClawSessionHistoryDto = {
   createdAt: string;
   runs: FastClawHistoryRunDto[];
 };
+
+// ---------- Stream events (Backend → Frontend) ----------
+
+/**
+ * 统一的事件流契约，前端 SSE 消费方按 `type` 分发。
+ *
+ * 历史背景：这套形状原本来自 Hermes 指令中心（command 模块），claw-only 分支
+ * 拆掉那一层之后把它内联到 FastClaw 模块自己持有。前端类型保持同名以减少改动
+ * 面，但语义上现在它就是 FastClaw run 的事件流。
+ */
+export type CommandStreamEvent =
+  | {
+      type: "thinking";
+      message: string;
+    }
+  | {
+      type: "agent_message";
+      message: string;
+    }
+  | {
+      type: "tool_start";
+      toolName: string;
+      displayName: string;
+    }
+  | {
+      type: "tool_result";
+      toolName: string;
+      summary: string;
+      result?: unknown;
+    }
+  | {
+      type: "need_confirmation";
+      confirmationId: string;
+      message: string;
+      payload: unknown;
+    }
+  | {
+      type: "final";
+      message?: string;
+      result: unknown;
+    }
+  | {
+      type: "error";
+      message: string;
+      code?: string;
+    };

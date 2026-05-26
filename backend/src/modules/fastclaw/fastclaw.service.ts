@@ -6,7 +6,6 @@ import { decodePasswordForSsh } from "@/modules/host-tracking/host-tracking.serv
 import * as paperRepo from "@/modules/papers/papers.repository.js";
 import { NotFoundError } from "@/shared/errors.js";
 import { baseLogger } from "@/shared/logger.js";
-import type { CommandStreamEvent } from "@/modules/command/command.dto.js";
 import {
   fastclawClient,
   type FastClawMessage,
@@ -17,6 +16,7 @@ import { fastclawRunEventBus } from "./fastclaw.bus.js";
 import * as repo from "./fastclaw.repository.js";
 import type { FastClawEventRowWithSeq } from "./fastclaw.repository.js";
 import type {
+  CommandStreamEvent,
   CreateFastClawSessionInput,
   FastClawChatInput,
   FastClawChatResponseDto,
