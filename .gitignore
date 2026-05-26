@@ -54,3 +54,7 @@ backend/nul
 
 # Frontend env
 fronted/.env
+
+# FastClaw conversation/session data (runtime artifacts, not source)
+fastclaw/agents/*/agent/memory/logs/
+fastclaw/workspaces/
