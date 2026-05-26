@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   Bot,
@@ -20,6 +18,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
+import { ChatMarkdown } from "@/components/hermes/ChatMarkdown";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
@@ -374,7 +373,7 @@ function EventBubble({ event }: { event: CommandStreamEvent }) {
             <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
               {t("command.phase.streaming")}
             </div>
-            <Markdown>{event.message || t("command.event.agentEmpty")}</Markdown>
+            <ChatMarkdown>{event.message || t("command.event.agentEmpty")}</ChatMarkdown>
           </div>
         </BubbleShell>
       );
@@ -383,7 +382,7 @@ function EventBubble({ event }: { event: CommandStreamEvent }) {
         <BubbleShell tone="default">
           <BubbleIcon Icon={Bot} tone="default" />
           <div className="min-w-0 flex-1">
-            <Markdown>{event.message || t("command.event.agentEmpty")}</Markdown>
+            <ChatMarkdown>{event.message || t("command.event.agentEmpty")}</ChatMarkdown>
           </div>
         </BubbleShell>
       );
@@ -461,7 +460,7 @@ function FinalBubble({ event }: { event: Extract<CommandStreamEvent, { type: "fi
         tone={isCancelled ? "muted" : "success"}
       />
       <div className="min-w-0 flex-1 space-y-2">
-        <Markdown>{headline}</Markdown>
+        <ChatMarkdown>{headline}</ChatMarkdown>
         {leftover !== undefined ? <ResultPreview value={leftover} /> : null}
       </div>
     </BubbleShell>
@@ -553,80 +552,6 @@ function safeStringify(v: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-// ---------- Markdown ----------
-
-function Markdown({ children }: { children: string }) {
-  return (
-    <div className="command-md space-y-2 text-sm leading-relaxed break-words">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: (props) => <h3 className="mt-1 text-base font-semibold" {...props} />,
-          h2: (props) => <h4 className="mt-1 text-sm font-semibold" {...props} />,
-          h3: (props) => <h5 className="mt-1 text-sm font-semibold" {...props} />,
-          h4: (props) => <h6 className="mt-1 text-sm font-semibold" {...props} />,
-          p: (props) => <p className="leading-relaxed" {...props} />,
-          ul: (props) => <ul className="list-disc space-y-1 pl-5" {...props} />,
-          ol: (props) => <ol className="list-decimal space-y-1 pl-5" {...props} />,
-          li: (props) => <li className="leading-relaxed" {...props} />,
-          strong: (props) => <strong className="font-semibold" {...props} />,
-          em: (props) => <em className="italic" {...props} />,
-          hr: () => <hr className="my-2 border-border" />,
-          a: ({ href, ...rest }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary underline-offset-2 hover:underline"
-              {...rest}
-            />
-          ),
-          blockquote: (props) => (
-            <blockquote
-              className="border-l-2 border-border pl-3 text-muted-foreground"
-              {...props}
-            />
-          ),
-          code: ({ className, children, ...rest }) => {
-            const isBlock = /language-/.test(className ?? "");
-            if (isBlock) {
-              return (
-                <code className={cn("block font-mono text-xs", className)} {...rest}>
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <code
-                className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[0.85em]"
-                {...rest}
-              >
-                {children}
-              </code>
-            );
-          },
-          pre: (props) => (
-            <pre
-              className="max-h-56 overflow-auto rounded-lg bg-secondary/60 p-2 text-xs leading-relaxed"
-              {...props}
-            />
-          ),
-          table: (props) => (
-            <div className="overflow-x-auto">
-              <table className="my-1 w-full border-collapse text-left text-xs" {...props} />
-            </div>
-          ),
-          thead: (props) => <thead className="bg-secondary/60" {...props} />,
-          th: (props) => <th className="border border-border px-2 py-1 font-semibold" {...props} />,
-          td: (props) => <td className="border border-border px-2 py-1 align-top" {...props} />,
-        }}
-      >
-        {children}
-      </ReactMarkdown>
-    </div>
-  );
 }
 
 // ---------- Phase 徽章 ----------

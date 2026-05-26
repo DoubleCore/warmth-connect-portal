@@ -1,18 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
-import {
-  Bot,
-  Brain,
-  Check,
-  ChevronRight,
-  Copy,
-  FileText,
-  KeyRound,
-  Plus,
-  Save,
-  Sparkles,
-  Trash2,
-} from "lucide-react";
+import { Check, ChevronRight, Copy, KeyRound, Save, ServerCog, Sparkles } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,149 +16,89 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { cn } from "@/lib/utils";
 
 export const Route = createFileRoute("/fastclaw")({
   head: () => ({
     meta: [
-      { title: "FastClaw Configuration - Hermes AI" },
+      { title: "FastClaw Model API - Hermes AI" },
       {
         name: "description",
-        content: "Configure FastClaw agents, skills, markdown files, and model API providers.",
+        content: "Configure FastClaw GLM and DeepSeek model API providers.",
       },
     ],
   }),
   component: FastClawConfigPage,
 });
 
-type AgentConfig = {
-  id: string;
-  key: "deploy" | "paper-analyse" | "researcher";
-  name: string;
-  envVar: string;
-  roleAliases: string;
-  agentId: string;
-  skillName: string;
-  skillPath: string;
-  skillMd: string;
-  mdFileName: string;
-  mdFilePath: string;
-  mdContent: string;
-  defaultModel: string;
-};
+type ProviderKey = "glm" | "deepseek";
 
 type ModelProvider = {
-  id: string;
-  name: string;
+  key: ProviderKey;
+  label: string;
+  name: ProviderKey;
   apiBase: string;
-  apiType: "openai-chat" | "anthropic-messages";
+  apiType: "openai-chat";
   authType: "bearer-token" | "api-key";
   apiKey: string;
+  apiKeyEnv: string;
   models: string;
 };
 
-type FastClawConfig = {
-  agents: AgentConfig[];
-  providers: ModelProvider[];
+type FastClawProviderConfig = {
   activeModel: string;
+  providers: Record<ProviderKey, ModelProvider>;
 };
 
-const STORAGE_KEY = "hermes:fastclaw-config";
+const PROVIDER_ORDER: ProviderKey[] = ["glm", "deepseek"];
+const STORAGE_KEY = "hermes:fastclaw-model-providers";
 
-const DEFAULT_CONFIG: FastClawConfig = {
-  activeModel: "codex/gpt-5.5",
-  providers: [
-    {
-      id: "provider-codex",
-      name: "codex",
-      apiBase: "http://127.0.0.1:3000/openai-codex-oauth/v1",
+const DEFAULT_CONFIG: FastClawProviderConfig = {
+  activeModel: "glm/glm-5.1",
+  providers: {
+    glm: {
+      key: "glm",
+      label: "GLM",
+      name: "glm",
+      apiBase: "https://open.bigmodel.cn/api/paas/v4",
       apiType: "openai-chat",
       authType: "bearer-token",
-      apiKey: "123456",
-      models: "gpt-5.5, gpt-5.4, gpt-5.3-codex",
+      apiKey: "",
+      apiKeyEnv: "GLM_API_KEY",
+      models: ["glm-5.1", "glm-4.7", "glm-4.5-air"].join("\n"),
     },
-    {
-      id: "provider-kiro",
-      name: "kiro",
-      apiBase: "http://127.0.0.1:3000/claude-kiro-oauth",
-      apiType: "anthropic-messages",
-      authType: "api-key",
-      apiKey: "123456",
-      models: "claude-sonnet-4-5, claude-opus-4-5, claude-haiku-4-5",
+    deepseek: {
+      key: "deepseek",
+      label: "DeepSeek",
+      name: "deepseek",
+      apiBase: "https://api.deepseek.com",
+      apiType: "openai-chat",
+      authType: "bearer-token",
+      apiKey: "",
+      apiKeyEnv: "DEEPSEEK_API_KEY",
+      models: ["deepseek-v4-pro", "deepseek-v4-flash"].join("\n"),
     },
-  ],
-  agents: [
-    {
-      id: "agent-deploy",
-      key: "deploy",
-      name: "Deployment Agent",
-      envVar: "FASTCLAW_AGENT_DEPLOY",
-      roleAliases: "deploy",
-      agentId: "",
-      skillName: "paper-reproduction-deploy",
-      skillPath: "~/.fastclaw/agents/<agent-id>/agent/skills/paper-reproduction-deploy/SKILL.md",
-      skillMd:
-        "---\nname: paper-reproduction-deploy\ndescription: Prepare, deploy, and monitor research paper reproduction jobs on available compute devices.\n---\n\nUse this skill when Hermes needs to turn a paper, repository, device, and reproduction record into an executable training or reproduction run.\n\n1. Verify the paper metadata, repository URL, device status, and reproduction target.\n2. Produce setup commands, dependency checks, dataset preparation steps, and launch commands.\n3. Stream progress, failures, artifacts, and next actions back to Hermes.\n",
-      mdFileName: "AGENTS.md",
-      mdFilePath: "~/.fastclaw/agents/<agent-id>/agent/AGENTS.md",
-      mdContent:
-        "# Deployment Agent\n\nYou are the FastClaw deployment agent for Hermes. Focus on runnable reproduction plans, device-aware execution, logs, and recovery steps.\n",
-      defaultModel: "codex/gpt-5.5",
-    },
-    {
-      id: "agent-analyse",
-      key: "paper-analyse",
-      name: "Paper Analysis Agent",
-      envVar: "FASTCLAW_AGENT_PAPER_ANALYSE",
-      roleAliases: "analyse, reader",
-      agentId: "",
-      skillName: "paper-analysis-rag",
-      skillPath: "~/.fastclaw/agents/<agent-id>/agent/skills/paper-analysis-rag/SKILL.md",
-      skillMd:
-        "---\nname: paper-analysis-rag\ndescription: Read papers, extract structured summaries, and answer questions with cited evidence from the local RAG corpus.\n---\n\nUse this skill when Hermes needs paper understanding, structured extraction, or grounded Q&A.\n\n1. Identify the active paper and available PDF/RAG sources.\n2. Extract task, method, datasets, metrics, implementation notes, and limitations.\n3. Prefer concise cited answers and note uncertainty when evidence is missing.\n",
-      mdFileName: "AGENTS.md",
-      mdFilePath: "~/.fastclaw/agents/<agent-id>/agent/AGENTS.md",
-      mdContent:
-        "# Paper Analysis Agent\n\nYou are the FastClaw paper analysis agent for Hermes. Keep answers evidence-based, structured, and tied to the current paper or corpus.\n",
-      defaultModel: "kiro/claude-sonnet-4-5",
-    },
-    {
-      id: "agent-researcher",
-      key: "researcher",
-      name: "Research Agent",
-      envVar: "FASTCLAW_AGENT_RESEARCHER",
-      roleAliases: "researcher, search",
-      agentId: "",
-      skillName: "paper-research-search",
-      skillPath: "~/.fastclaw/agents/<agent-id>/agent/skills/paper-research-search/SKILL.md",
-      skillMd:
-        "---\nname: paper-research-search\ndescription: Search for papers, compare related work, and build research briefs for Hermes workflows.\n---\n\nUse this skill when Hermes needs discovery, literature comparison, or a research plan.\n\n1. Clarify the research question, scope, and constraints.\n2. Search and rank relevant papers, repositories, datasets, and benchmarks.\n3. Return a compact brief with recommended next papers and reproducibility notes.\n",
-      mdFileName: "AGENTS.md",
-      mdFilePath: "~/.fastclaw/agents/<agent-id>/agent/AGENTS.md",
-      mdContent:
-        "# Research Agent\n\nYou are the FastClaw research agent for Hermes. Prioritize high-signal discovery, comparison, and actionable next steps.\n",
-      defaultModel: "codex/gpt-5.5",
-    },
-  ],
+  },
 };
 
 function FastClawConfigPage() {
-  const [config, setConfig] = useState<FastClawConfig>(DEFAULT_CONFIG);
-  const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_CONFIG.agents[0].id);
+  const [config, setConfig] = useState<FastClawProviderConfig>(DEFAULT_CONFIG);
+  const [selectedProvider, setSelectedProvider] = useState<ProviderKey>("glm");
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) setConfig({ ...DEFAULT_CONFIG, ...JSON.parse(raw) });
+      if (raw) setConfig(sanitizeConfig(JSON.parse(raw)));
     } catch {
       setConfig(DEFAULT_CONFIG);
     }
   }, []);
 
-  const selectedAgent =
-    config.agents.find((agent) => agent.id === selectedAgentId) ?? config.agents[0];
+  const providerList = useMemo(
+    () => PROVIDER_ORDER.map((key) => config.providers[key]),
+    [config.providers],
+  );
   const modelOptions = useMemo(() => buildModelOptions(config.providers), [config.providers]);
   const commandPreview = useMemo(() => buildCommands(config), [config]);
 
@@ -185,45 +114,13 @@ function FastClawConfigPage() {
     setTimeout(() => setCopied(false), 1600);
   };
 
-  const updateAgent = (id: string, patch: Partial<AgentConfig>) => {
+  const updateProvider = (key: ProviderKey, patch: Partial<ModelProvider>) => {
     setConfig((prev) => ({
       ...prev,
-      agents: prev.agents.map((agent) => (agent.id === id ? { ...agent, ...patch } : agent)),
-    }));
-  };
-
-  const updateProvider = (id: string, patch: Partial<ModelProvider>) => {
-    setConfig((prev) => ({
-      ...prev,
-      providers: prev.providers.map((provider) =>
-        provider.id === id ? { ...provider, ...patch } : provider,
-      ),
-    }));
-  };
-
-  const addProvider = () => {
-    const id = `provider-${Date.now()}`;
-    setConfig((prev) => ({
-      ...prev,
-      providers: [
+      providers: {
         ...prev.providers,
-        {
-          id,
-          name: "custom",
-          apiBase: "",
-          apiType: "openai-chat",
-          authType: "bearer-token",
-          apiKey: "",
-          models: "",
-        },
-      ],
-    }));
-  };
-
-  const removeProvider = (id: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      providers: prev.providers.filter((provider) => provider.id !== id),
+        [key]: { ...prev.providers[key], ...patch, key, name: key },
+      },
     }));
   };
 
@@ -244,12 +141,11 @@ function FastClawConfigPage() {
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <Bot className="h-5 w-5 text-primary" aria-hidden />
-              <h1 className="text-4xl font-semibold tracking-tight">FastClaw Configuration</h1>
+              <KeyRound className="h-5 w-5 text-primary" aria-hidden />
+              <h1 className="text-4xl font-semibold tracking-tight">FastClaw Model API</h1>
             </div>
             <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
-              Configure the three Hermes-facing FastClaw agents, their skill files, agent markdown,
-              and model API providers.
+              GLM and DeepSeek provider settings aligned with FastClaw provider configuration.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -270,32 +166,40 @@ function FastClawConfigPage() {
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
           <div className="flex flex-col gap-6">
             <section className="rounded-2xl border border-border bg-card p-6">
-              <div className="mb-5 flex items-center justify-between gap-3">
+              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" aria-hidden />
-                  <h2 className="text-lg font-semibold">Agent Files</h2>
+                  <ServerCog className="h-5 w-5 text-primary" aria-hidden />
+                  <h2 className="text-lg font-semibold">Provider Pages</h2>
                 </div>
-                <Badge variant="outline">3 agents</Badge>
+                <div className="flex gap-2">
+                  {providerList.map((provider) => (
+                    <Badge key={provider.key} variant="outline" className="font-mono">
+                      {provider.name}
+                    </Badge>
+                  ))}
+                </div>
               </div>
 
-              <Tabs value={selectedAgentId} onValueChange={setSelectedAgentId}>
-                <TabsList className="grid w-full grid-cols-3">
-                  {config.agents.map((agent) => (
-                    <TabsTrigger key={agent.id} value={agent.id} className="min-w-0">
-                      <span className="truncate">{agent.name}</span>
+              <Tabs
+                value={selectedProvider}
+                onValueChange={(value) => setSelectedProvider(value as ProviderKey)}
+              >
+                <TabsList className="grid w-full grid-cols-2">
+                  {providerList.map((provider) => (
+                    <TabsTrigger key={provider.key} value={provider.key}>
+                      {provider.label}
                     </TabsTrigger>
                   ))}
                 </TabsList>
 
-                {config.agents.map((agent) => (
-                  <TabsContent key={agent.id} value={agent.id} className="mt-6">
-                    <AgentEditor
-                      agent={agent}
-                      modelOptions={modelOptions}
-                      onChange={(patch) => updateAgent(agent.id, patch)}
+                {providerList.map((provider) => (
+                  <TabsContent key={provider.key} value={provider.key} className="mt-6">
+                    <ProviderPanel
+                      provider={provider}
+                      onChange={(patch) => updateProvider(provider.key, patch)}
                     />
                   </TabsContent>
                 ))}
@@ -303,88 +207,38 @@ function FastClawConfigPage() {
             </section>
 
             <section className="rounded-2xl border border-border bg-card p-6">
-              <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-5 w-5 text-primary" aria-hidden />
-                  <h2 className="text-lg font-semibold">Model API Providers</h2>
-                </div>
-                <Button variant="outline" size="sm" onClick={addProvider}>
-                  <Plus className="mr-2 h-4 w-4" aria-hidden />
-                  Add provider
-                </Button>
+              <div className="mb-5 flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-primary" aria-hidden />
+                <h2 className="text-lg font-semibold">Default Model</h2>
               </div>
 
-              <div className="grid gap-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="active-model">Global active model</Label>
-                  <Input
-                    id="active-model"
-                    value={config.activeModel}
-                    onChange={(event) =>
-                      setConfig((prev) => ({ ...prev, activeModel: event.target.value }))
-                    }
-                    placeholder="provider/model-id"
-                    className="font-mono"
-                  />
-                </div>
-
-                {config.providers.map((provider) => (
-                  <ProviderEditor
-                    key={provider.id}
-                    provider={provider}
-                    canRemove={config.providers.length > 1}
-                    onChange={(patch) => updateProvider(provider.id, patch)}
-                    onRemove={() => removeProvider(provider.id)}
-                  />
-                ))}
-              </div>
+              <Field label="FastClaw model" id="active-model">
+                <Input
+                  id="active-model"
+                  list="fastclaw-model-options"
+                  value={config.activeModel}
+                  onChange={(event) =>
+                    setConfig((prev) => ({ ...prev, activeModel: event.target.value }))
+                  }
+                  placeholder="provider/model-id"
+                  className="font-mono"
+                />
+                <datalist id="fastclaw-model-options">
+                  {modelOptions.map((model) => (
+                    <option key={model} value={model} />
+                  ))}
+                </datalist>
+              </Field>
             </section>
           </div>
 
           <aside className="flex flex-col gap-6">
             <section className="rounded-2xl border border-border bg-card p-6 xl:sticky xl:top-6">
               <div className="flex items-center gap-2">
-                <Brain className="h-5 w-5 text-primary" aria-hidden />
-                <h2 className="text-lg font-semibold">Runtime Mapping</h2>
-              </div>
-              <div className="mt-5 space-y-3">
-                {config.agents.map((agent) => (
-                  <div
-                    key={agent.id}
-                    className={cn(
-                      "rounded-xl border border-border bg-background/40 p-4",
-                      selectedAgent.id === agent.id && "border-primary/50 bg-primary/5",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{agent.name}</div>
-                        <div className="truncate font-mono text-[11px] text-muted-foreground">
-                          {agent.envVar}
-                        </div>
-                      </div>
-                      <Badge variant="outline" className="shrink-0">
-                        {agent.roleAliases}
-                      </Badge>
-                    </div>
-                    <div className="mt-3 grid gap-1 text-xs text-muted-foreground">
-                      <span className="truncate font-mono">id: {agent.agentId || "unset"}</span>
-                      <span className="truncate font-mono">
-                        model: {agent.defaultModel || config.activeModel}
-                      </span>
-                      <span className="truncate font-mono">skill: {agent.skillName}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            <section className="rounded-2xl border border-border bg-card p-6">
-              <div className="flex items-center gap-2">
-                <FileText className="h-5 w-5 text-primary" aria-hidden />
+                <KeyRound className="h-5 w-5 text-primary" aria-hidden />
                 <h2 className="text-lg font-semibold">Generated CLI</h2>
               </div>
-              <pre className="mt-4 max-h-[520px] overflow-auto rounded-xl border border-border bg-background/60 p-4 text-xs text-muted-foreground">
+              <pre className="mt-4 max-h-[620px] overflow-auto rounded-xl border border-border bg-background/60 p-4 text-xs text-muted-foreground">
                 <code>{commandPreview}</code>
               </pre>
             </section>
@@ -395,191 +249,40 @@ function FastClawConfigPage() {
   );
 }
 
-function AgentEditor({
-  agent,
-  modelOptions,
+function ProviderPanel({
+  provider,
   onChange,
 }: {
-  agent: AgentConfig;
-  modelOptions: string[];
-  onChange: (patch: Partial<AgentConfig>) => void;
+  provider: ModelProvider;
+  onChange: (patch: Partial<ModelProvider>) => void;
 }) {
   return (
     <div className="grid gap-5">
       <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Agent display name" id={`${agent.id}-name`}>
-          <Input
-            id={`${agent.id}-name`}
-            value={agent.name}
-            onChange={(event) => onChange({ name: event.target.value })}
-          />
+        <Field label="Provider name" id={`${provider.key}-name`}>
+          <Input id={`${provider.key}-name`} value={provider.name} readOnly className="font-mono" />
         </Field>
-        <Field label="FastClaw agent ID" id={`${agent.id}-agent-id`}>
+        <Field label="API base URL" id={`${provider.key}-base`}>
           <Input
-            id={`${agent.id}-agent-id`}
-            value={agent.agentId}
-            onChange={(event) => onChange({ agentId: event.target.value })}
-            placeholder="agt_..."
-            className="font-mono"
-          />
-        </Field>
-        <Field label="Environment variable" id={`${agent.id}-env`}>
-          <Input
-            id={`${agent.id}-env`}
-            value={agent.envVar}
-            onChange={(event) => onChange({ envVar: event.target.value })}
-            className="font-mono"
-          />
-        </Field>
-        <Field label="Role aliases" id={`${agent.id}-roles`}>
-          <Input
-            id={`${agent.id}-roles`}
-            value={agent.roleAliases}
-            onChange={(event) => onChange({ roleAliases: event.target.value })}
-            className="font-mono"
-          />
-        </Field>
-        <Field label="Default model" id={`${agent.id}-model`}>
-          {modelOptions.length > 0 ? (
-            <Select
-              value={agent.defaultModel}
-              onValueChange={(value) => onChange({ defaultModel: value })}
-            >
-              <SelectTrigger id={`${agent.id}-model`} className="font-mono">
-                <SelectValue placeholder="Select model" />
-              </SelectTrigger>
-              <SelectContent>
-                {modelOptions.map((model) => (
-                  <SelectItem key={model} value={model}>
-                    <span className="font-mono">{model}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : (
-            <Input
-              id={`${agent.id}-model`}
-              value={agent.defaultModel}
-              onChange={(event) => onChange({ defaultModel: event.target.value })}
-              placeholder="provider/model-id"
-              className="font-mono"
-            />
-          )}
-        </Field>
-        <Field label="Skill name" id={`${agent.id}-skill-name`}>
-          <Input
-            id={`${agent.id}-skill-name`}
-            value={agent.skillName}
-            onChange={(event) => onChange({ skillName: event.target.value })}
-            className="font-mono"
-          />
-        </Field>
-      </div>
-
-      <Field label="Skill file path" id={`${agent.id}-skill-path`}>
-        <Input
-          id={`${agent.id}-skill-path`}
-          value={agent.skillPath}
-          onChange={(event) => onChange({ skillPath: event.target.value })}
-          className="font-mono"
-        />
-      </Field>
-      <Field label="SKILL.md" id={`${agent.id}-skill-md`}>
-        <Textarea
-          id={`${agent.id}-skill-md`}
-          value={agent.skillMd}
-          onChange={(event) => onChange({ skillMd: event.target.value })}
-          rows={12}
-          className="font-mono text-xs"
-        />
-      </Field>
-      <div className="grid gap-4 md:grid-cols-[220px_1fr]">
-        <Field label="Markdown file" id={`${agent.id}-md-name`}>
-          <Input
-            id={`${agent.id}-md-name`}
-            value={agent.mdFileName}
-            onChange={(event) => onChange({ mdFileName: event.target.value })}
-            className="font-mono"
-          />
-        </Field>
-        <Field label="Markdown path" id={`${agent.id}-md-path`}>
-          <Input
-            id={`${agent.id}-md-path`}
-            value={agent.mdFilePath}
-            onChange={(event) => onChange({ mdFilePath: event.target.value })}
-            className="font-mono"
-          />
-        </Field>
-      </div>
-      <Field
-        label={`${agent.mdFileName || "Agent markdown"} content`}
-        id={`${agent.id}-md-content`}
-      >
-        <Textarea
-          id={`${agent.id}-md-content`}
-          value={agent.mdContent}
-          onChange={(event) => onChange({ mdContent: event.target.value })}
-          rows={8}
-          className="font-mono text-xs"
-        />
-      </Field>
-    </div>
-  );
-}
-
-function ProviderEditor({
-  provider,
-  canRemove,
-  onChange,
-  onRemove,
-}: {
-  provider: ModelProvider;
-  canRemove: boolean;
-  onChange: (patch: Partial<ModelProvider>) => void;
-  onRemove: () => void;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-background/40 p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium">{provider.name || "Custom provider"}</div>
-          <div className="truncate font-mono text-xs text-muted-foreground">
-            {provider.apiBase || "No API base"}
-          </div>
-        </div>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-destructive hover:text-destructive"
-          disabled={!canRemove}
-          onClick={onRemove}
-          aria-label="Remove provider"
-        >
-          <Trash2 className="h-4 w-4" aria-hidden />
-        </Button>
-      </div>
-      <div className="grid gap-4 md:grid-cols-2">
-        <Field label="Provider name" id={`${provider.id}-name`}>
-          <Input
-            id={`${provider.id}-name`}
-            value={provider.name}
-            onChange={(event) => onChange({ name: normalizeProviderName(event.target.value) })}
-            placeholder="openai"
-            className="font-mono"
-          />
-        </Field>
-        <Field label="API base URL" id={`${provider.id}-base`}>
-          <Input
-            id={`${provider.id}-base`}
+            id={`${provider.key}-base`}
             value={provider.apiBase}
             onChange={(event) => onChange({ apiBase: event.target.value })}
-            placeholder="https://api.openai.com/v1"
+            placeholder="https://api.example.com/v1"
             className="font-mono"
           />
         </Field>
-        <Field label="API key" id={`${provider.id}-key`}>
+        <Field label="API key env" id={`${provider.key}-key-env`}>
           <Input
-            id={`${provider.id}-key`}
+            id={`${provider.key}-key-env`}
+            value={provider.apiKeyEnv}
+            onChange={(event) => onChange({ apiKeyEnv: normalizeEnvName(event.target.value) })}
+            placeholder="PROVIDER_API_KEY"
+            className="font-mono"
+          />
+        </Field>
+        <Field label="API key" id={`${provider.key}-key`}>
+          <Input
+            id={`${provider.key}-key`}
             type="password"
             value={provider.apiKey}
             onChange={(event) => onChange({ apiKey: event.target.value })}
@@ -587,35 +290,20 @@ function ProviderEditor({
             className="font-mono"
           />
         </Field>
-        <Field label="Models" id={`${provider.id}-models`}>
+        <Field label="API type" id={`${provider.key}-api-type`}>
           <Input
-            id={`${provider.id}-models`}
-            value={provider.models}
-            onChange={(event) => onChange({ models: event.target.value })}
-            placeholder="gpt-5.5, gpt-5.4"
+            id={`${provider.key}-api-type`}
+            value={provider.apiType}
+            readOnly
             className="font-mono"
           />
         </Field>
-        <Field label="API type" id={`${provider.id}-api-type`}>
-          <Select
-            value={provider.apiType}
-            onValueChange={(value) => onChange({ apiType: value as ModelProvider["apiType"] })}
-          >
-            <SelectTrigger id={`${provider.id}-api-type`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="openai-chat">OpenAI Chat</SelectItem>
-              <SelectItem value="anthropic-messages">Anthropic Messages</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-        <Field label="Auth type" id={`${provider.id}-auth-type`}>
+        <Field label="Auth type" id={`${provider.key}-auth-type`}>
           <Select
             value={provider.authType}
             onValueChange={(value) => onChange({ authType: value as ModelProvider["authType"] })}
           >
-            <SelectTrigger id={`${provider.id}-auth-type`}>
+            <SelectTrigger id={`${provider.key}-auth-type`}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -625,11 +313,21 @@ function ProviderEditor({
           </Select>
         </Field>
       </div>
+
+      <Field label="Model IDs" id={`${provider.key}-models`}>
+        <Textarea
+          id={`${provider.key}-models`}
+          value={provider.models}
+          onChange={(event) => onChange({ models: event.target.value })}
+          rows={7}
+          className="font-mono text-xs"
+        />
+      </Field>
     </div>
   );
 }
 
-function Field({ label, id, children }: { label: string; id: string; children: React.ReactNode }) {
+function Field({ label, id, children }: { label: string; id: string; children: ReactNode }) {
   return (
     <div className="grid gap-2">
       <Label htmlFor={id}>{label}</Label>
@@ -638,50 +336,115 @@ function Field({ label, id, children }: { label: string; id: string; children: R
   );
 }
 
-function buildModelOptions(providers: ModelProvider[]) {
-  return providers.flatMap((provider) =>
-    splitModels(provider.models).map((model) => `${provider.name || "custom"}/${model}`),
+function sanitizeConfig(input: unknown): FastClawProviderConfig {
+  const source = isRecord(input) ? input : {};
+  const storedProviders = isRecord(source.providers) ? source.providers : {};
+
+  const providers = PROVIDER_ORDER.reduce(
+    (acc, key) => {
+      const stored = isRecord(storedProviders[key]) ? storedProviders[key] : {};
+      const defaults = DEFAULT_CONFIG.providers[key];
+      acc[key] = {
+        ...defaults,
+        apiBase: readString(stored.apiBase, defaults.apiBase),
+        authType: stored.authType === "api-key" ? "api-key" : defaults.authType,
+        apiKey: readString(stored.apiKey, defaults.apiKey),
+        apiKeyEnv: readString(stored.apiKeyEnv, defaults.apiKeyEnv),
+        models: readString(stored.models, defaults.models),
+        key,
+        name: key,
+        label: defaults.label,
+        apiType: "openai-chat",
+      };
+      return acc;
+    },
+    {} as Record<ProviderKey, ModelProvider>,
+  );
+
+  return {
+    activeModel:
+      typeof source.activeModel === "string" && source.activeModel.trim()
+        ? source.activeModel
+        : DEFAULT_CONFIG.activeModel,
+    providers,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function readString(value: unknown, fallback: string) {
+  return typeof value === "string" ? value : fallback;
+}
+
+function buildModelOptions(providers: Record<ProviderKey, ModelProvider>) {
+  return PROVIDER_ORDER.flatMap((key) =>
+    splitModels(providers[key].models).map((model) => toProviderModel(key, model)),
   );
 }
 
-function buildCommands(config: FastClawConfig) {
-  const lines: string[] = [
-    "# FastClaw provider configuration",
-    ...config.providers.flatMap((provider) => {
-      const name = provider.name || "custom";
+function buildCommands(config: FastClawProviderConfig) {
+  const lines = [
+    "# FastClaw GLM and DeepSeek provider configuration",
+    ...PROVIDER_ORDER.flatMap((key) => {
+      const provider = config.providers[key];
+      const models = splitModels(provider.models);
       return [
-        `fastclaw agents config <agent> set provider.${name}.apiKey ${provider.apiKey || "<api-key>"}`,
-        `fastclaw agents config <agent> set provider.${name}.apiBase ${provider.apiBase || "<api-base-url>"}`,
-        `fastclaw agents config <agent> set provider.${name}.apiType ${provider.apiType}`,
-        `fastclaw agents config <agent> set provider.${name}.authType ${provider.authType}`,
-        ...splitModels(provider.models).map(
-          (model) => `fastclaw agents config <agent> set provider.${name}.model ${model}`,
+        `fastclaw agents config <agent> set provider.${provider.name}.apiKeyEnv ${shellValue(provider.apiKeyEnv, "<api-key-env>")}`,
+        ...(provider.apiKey.trim()
+          ? [
+              `fastclaw agents config <agent> set provider.${provider.name}.apiKey ${shellValue(
+                provider.apiKey,
+                "<api-key>",
+              )}`,
+            ]
+          : []),
+        `fastclaw agents config <agent> set provider.${provider.name}.apiBase ${shellValue(provider.apiBase, "<api-base-url>")}`,
+        `fastclaw agents config <agent> set provider.${provider.name}.apiType ${provider.apiType}`,
+        `fastclaw agents config <agent> set provider.${provider.name}.authType ${provider.authType}`,
+        `fastclaw agents config <agent> set provider.${provider.name}.models '[]'`,
+        ...models.map(
+          (model) =>
+            `fastclaw agents config <agent> set provider.${provider.name}.model ${shellValue(
+              normalizeModelId(model),
+              "<model-id>",
+            )}`,
         ),
+        "",
       ];
     }),
-    `fastclaw agents config <agent> set model ${config.activeModel || "<provider/model>"}`,
-    "",
-    "# Hermes role bindings",
-    ...config.agents.flatMap((agent) => [
-      `${agent.envVar}=${agent.agentId || "agt_..."}`,
-      `fastclaw agents config ${agent.agentId || "<agent-id>"} set model ${
-        agent.defaultModel || config.activeModel || "<provider/model>"
-      }`,
-      `# skill: ${agent.skillPath}`,
-      `# markdown: ${agent.mdFilePath}`,
-    ]),
+    `fastclaw agents config <agent> set model ${shellValue(config.activeModel, "<provider/model>")}`,
   ];
 
-  return lines.join("\n");
+  return lines.join("\n").trim();
 }
 
 function splitModels(models: string) {
   return models
-    .split(",")
-    .map((item) => item.trim())
+    .split(/[\n,]/)
+    .map((item) => normalizeModelId(item))
     .filter(Boolean);
 }
 
-function normalizeProviderName(value: string) {
-  return value.toLowerCase().trim().replace(/\s+/g, "-");
+function normalizeModelId(value: string) {
+  return value
+    .trim()
+    .replace(/^glm\//, "")
+    .replace(/^deepseek\//, "");
+}
+
+function toProviderModel(provider: ProviderKey, model: string) {
+  const normalized = normalizeModelId(model);
+  return normalized.includes("/") ? normalized : `${provider}/${normalized}`;
+}
+
+function normalizeEnvName(value: string) {
+  return value.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+}
+
+function shellValue(value: string, fallback: string) {
+  const trimmed = value.trim();
+  if (!trimmed) return fallback;
+  return /^[A-Za-z0-9._~:/?#[\]@!$&()*+,;=%-]+$/.test(trimmed) ? trimmed : JSON.stringify(trimmed);
 }

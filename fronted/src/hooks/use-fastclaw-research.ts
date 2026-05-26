@@ -11,7 +11,7 @@ import type {
   CommandStreamEvent,
   CommandStreamEventType,
 } from "@/types/command";
-import type { FastClawHistoryRunDto, FastClawRunStatus } from "@/types/fastclaw";
+import type { FastClawAgentRole, FastClawHistoryRunDto, FastClawRunStatus } from "@/types/fastclaw";
 
 export type FastClawResearchTranscriptItem =
   | {
@@ -46,23 +46,33 @@ export type UseFastClawResearchReturn = {
   newSession: () => void;
 };
 
-const STORAGE_KEY = "hermes.fastclaw-research.sessionId.v1";
+export type UseFastClawResearchOptions = {
+  storageKey?: string;
+  entry?: string;
+  agentRole?: FastClawAgentRole;
+  fallbackErrorMessage?: string;
+};
+
+const DEFAULT_STORAGE_KEY = "hermes.fastclaw-research.sessionId.v1";
+const DEFAULT_ENTRY = "research";
+const DEFAULT_AGENT_ROLE: FastClawAgentRole = "search";
+const DEFAULT_FALLBACK_ERROR = "无法连接 FastClaw 论文搜索助手。";
 const TERMINAL_STATUSES: ReadonlyArray<FastClawRunStatus> = ["completed", "failed", "cancelled"];
 
-function readStoredSessionId(): string | null {
+function readStoredSessionId(storageKey: string): string | null {
   if (typeof window === "undefined") return null;
   try {
-    return window.localStorage.getItem(STORAGE_KEY);
+    return window.localStorage.getItem(storageKey);
   } catch {
     return null;
   }
 }
 
-function writeStoredSessionId(sessionId: string | null): void {
+function writeStoredSessionId(storageKey: string, sessionId: string | null): void {
   if (typeof window === "undefined") return;
   try {
-    if (sessionId) window.localStorage.setItem(STORAGE_KEY, sessionId);
-    else window.localStorage.removeItem(STORAGE_KEY);
+    if (sessionId) window.localStorage.setItem(storageKey, sessionId);
+    else window.localStorage.removeItem(storageKey);
   } catch {
     // localStorage can be unavailable in privacy modes.
   }
@@ -161,7 +171,14 @@ function runsToTranscript(runs: FastClawHistoryRunDto[]): {
   return { items, seq };
 }
 
-export function useFastClawResearch(): UseFastClawResearchReturn {
+export function useFastClawResearch(
+  opts: UseFastClawResearchOptions = {},
+): UseFastClawResearchReturn {
+  const storageKey = opts.storageKey ?? DEFAULT_STORAGE_KEY;
+  const entry = opts.entry ?? DEFAULT_ENTRY;
+  const agentRole = opts.agentRole ?? DEFAULT_AGENT_ROLE;
+  const fallbackErrorMessage = opts.fallbackErrorMessage ?? DEFAULT_FALLBACK_ERROR;
+
   const [phase, setPhase] = useState<CommandRuntimePhase>("idle");
   const [transcript, setTranscript] = useState<FastClawResearchTranscriptItem[]>([]);
   const [currentCommandId, setCurrentCommandId] = useState<string | null>(null);
@@ -359,7 +376,7 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
   }, [closeStream]);
 
   useEffect(() => {
-    const stored = readStoredSessionId();
+    const stored = readStoredSessionId(storageKey);
     if (!stored) return;
 
     let cancelled = false;
@@ -399,7 +416,7 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 404) {
           sessionIdRef.current = null;
-          writeStoredSessionId(null);
+          writeStoredSessionId(storageKey, null);
         }
       }
     })();
@@ -407,18 +424,18 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
     return () => {
       cancelled = true;
     };
-  }, [openRunStream]);
+  }, [openRunStream, storageKey]);
 
   const ensureSession = useCallback(async (): Promise<string> => {
     if (sessionIdRef.current) return sessionIdRef.current;
     const session = await createFastClawSession({
-      entry: "research",
-      agentRole: "search",
+      entry,
+      agentRole,
     });
     sessionIdRef.current = session.sessionId;
-    writeStoredSessionId(session.sessionId);
+    writeStoredSessionId(storageKey, session.sessionId);
     return session.sessionId;
-  }, []);
+  }, [agentRole, entry, storageKey]);
 
   const reset = useCallback(() => {
     closeStream();
@@ -433,8 +450,8 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
   const newSession = useCallback(() => {
     reset();
     sessionIdRef.current = null;
-    writeStoredSessionId(null);
-  }, [reset]);
+    writeStoredSessionId(storageKey, null);
+  }, [reset, storageKey]);
 
   const respondConfirmation = useCallback(async () => {
     // FastClaw research does not currently use confirmation cards.
@@ -454,7 +471,7 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
         const sessionId = await ensureSession();
         const response = await sendFastClawMessage(sessionId, {
           message: trimmed,
-          agentRole: "search",
+          agentRole,
         });
 
         setCurrentCommandId(response.runId);
@@ -475,13 +492,13 @@ export function useFastClawResearch(): UseFastClawResearchReturn {
             ? err.message
             : err instanceof Error
               ? err.message
-              : "无法连接 FastClaw 论文搜索助手。";
+              : fallbackErrorMessage;
         const code = err instanceof ApiError ? err.code : "FASTCLAW_RESEARCH_DISPATCH_FAILED";
         setError({ code, message });
         setPhase("failed");
       }
     },
-    [closeStream, ensureSession, openRunStream],
+    [agentRole, closeStream, ensureSession, fallbackErrorMessage, openRunStream],
   );
 
   return {

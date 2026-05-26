@@ -2,90 +2,81 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
+  Bot,
+  CheckCircle2,
+  Download,
+  Filter,
+  Hammer,
+  Loader2,
+  Paperclip,
   Search,
   Send,
-  Paperclip,
   Share2,
-  Download,
-  User,
   Sparkles,
-  Filter,
-  Loader2,
+  User,
 } from "lucide-react";
 import { z } from "zod";
 import { Shell } from "@/components/hermes/Shell";
+import { ChatMarkdown } from "@/components/hermes/ChatMarkdown";
+import { getRagScope } from "@/api/rag";
 import { useI18n } from "@/lib/i18n/I18nProvider";
-import { askRag, getRagScope } from "@/api/rag";
-import { ApiError } from "@/lib/api-client";
-import { cn } from "@/lib/utils";
-import type { RagQueryReference, RagQueryResponse } from "@/types/rag";
+import {
+  useFastClawResearch,
+  type FastClawResearchTranscriptItem,
+} from "@/hooks/use-fastclaw-research";
+import type { CommandRuntimePhase, CommandStreamEvent } from "@/types/command";
 
 const searchSchema = z.object({
   q: z.string().optional(),
+  paperId: z.string().optional(),
 });
 
 export const Route = createFileRoute("/search")({
   validateSearch: searchSchema,
   head: () => ({
     meta: [
-      { title: "RAG Search — Hermes AI" },
-      { name: "description", content: "Semantic retrieval across the global research corpus." },
+      { title: "RAG Search - Hermes AI" },
+      { name: "description", content: "FastClaw-assisted analysis over the research corpus." },
     ],
   }),
   component: RagSearchPage,
 });
 
-/**
- * RAG Search 页 —— 对话式 Q&A 面板。
- *
- * 数据流（对齐 Design_SQLite_Abstract_RAG.md §9.1）：
- *
- *   用户在底部输入问题
- *     ↓
- *   POST /api/rag/query  (backend: FTS 召回 → embedding rerank → LLM 生成)
- *     ↓
- *   左侧渲染：助手气泡（answer） + 引用卡片（references）
- *   右侧渲染：Current Source（Top 1 引用） / Data Extraction（Top 1 元数据）
- *             / Execution Context（scope + 模型名 + 是否用了 embedding）
- *
- * 交互上故意不做 debounce / 随字符触发：每条 query 都是真钱（LLM 调用），
- * 只在用户按下 Enter 或点发送按钮时才打一次。
- *
- * 降级：
- *   · backend 未配置 LLM_API_KEY → 503 LLM_NOT_CONFIGURED：助手气泡展示
- *     引导去配置的提示，而不是红色 error。
- *   · 语料里没命中相关论文 → backend 照样返回"没找到"的 answer，不抛错。
- */
 function RagSearchPage() {
   const { t } = useI18n();
-  const { q: urlQuery } = Route.useSearch();
+  const { q: urlQuery, paperId } = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
-
-  // 对话历史：每一轮 = 用户问题 + 最终从 /query 拿到的响应（或错误）。
-  // 仅保留"已提交"的问题，输入中的草稿活在 draft state 里。
-  type Turn = {
-    id: string;
-    question: string;
-    // 以下字段在当前轮还在请求时可能为 null；完成后再填充
-    response: RagQueryResponse | null;
-    error: ApiError | Error | null;
-    loading: boolean;
-  };
-  const [turns, setTurns] = useState<Turn[]>([]);
+  const command = useFastClawResearch({
+    storageKey: "hermes.fastclaw-rag-analysis.sessionId.v1",
+    entry: "rag-analysis",
+    agentRole: "reader",
+    fallbackErrorMessage: "无法连接 FastClaw 论文分析助手。",
+  });
   const [draft, setDraft] = useState("");
 
-  // 页面首次挂载时，如果 URL 带 ?q=xxx，自动当作第一次提问发出去。
-  // 之后不再用 URL 驱动——避免每次输入都 push 历史。
-  const initialFired = useRef(false);
-  useEffect(() => {
-    if (initialFired.current) return;
-    initialFired.current = true;
-    const q = urlQuery?.trim();
-    if (q) {
-      void submitQuestion(q);
+  const isBusy =
+    command.phase === "connecting" ||
+    command.phase === "streaming" ||
+    command.phase === "awaiting_confirmation";
+
+  const turns = useMemo(() => groupTurns(command.transcript), [command.transcript]);
+  const latestEvent = useMemo(() => {
+    for (let i = command.transcript.length - 1; i >= 0; i -= 1) {
+      const item = command.transcript[i];
+      if (item.kind === "event") return item.event;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return null;
+  }, [command.transcript]);
+  const latestTool = useMemo(() => {
+    for (let i = command.transcript.length - 1; i >= 0; i -= 1) {
+      const item = command.transcript[i];
+      if (item.kind !== "event") continue;
+      if (item.event.type === "tool_start") return item.event.displayName || item.event.toolName;
+      if (item.event.type === "tool_result") return item.event.toolName;
+    }
+    return null;
+  }, [command.transcript]);
 
   const scopeQuery = useQuery({
     queryKey: ["rag-scope"] as const,
@@ -93,97 +84,89 @@ function RagSearchPage() {
     staleTime: 5 * 60_000,
   });
 
-  // ---- 核心：提交一条新问题 ----
-  async function submitQuestion(question: string) {
-    const id =
-      typeof crypto !== "undefined" && "randomUUID" in crypto
-        ? crypto.randomUUID()
-        : `turn_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    setTurns((prev) => [...prev, { id, question, response: null, error: null, loading: true }]);
-    // URL 同步：保留最后一次 query，方便分享/刷新
-    navigate({
-      search: (prev) => ({ ...prev, q: question }),
-      replace: true,
-    });
-    try {
-      const res = await askRag(question, 5);
-      setTurns((prev) =>
-        prev.map((t2) => (t2.id === id ? { ...t2, response: res, loading: false } : t2)),
-      );
-    } catch (err) {
-      const asError = err instanceof Error ? err : new Error(String(err));
-      setTurns((prev) =>
-        prev.map((t2) =>
-          t2.id === id ? { ...t2, error: asError as ApiError | Error, loading: false } : t2,
-        ),
-      );
-    }
-  }
+  const initialFired = useRef(false);
+  useEffect(() => {
+    if (initialFired.current) return;
+    initialFired.current = true;
+    const q = urlQuery?.trim();
+    if (q) void submitQuestion(q);
+    // submitQuestion intentionally reads current command state only once here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const v = draft.trim();
-    if (!v) return;
-    setDraft("");
-    void submitQuestion(v);
-  };
-
-  // 滚动到最后一条
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const latestTurn = turns[turns.length - 1];
-  const latestLoading = latestTurn?.loading ?? false;
-  const latestResponse = latestTurn?.response ?? null;
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [turns.length, latestLoading, latestResponse]);
+  }, [command.error, command.transcript.length]);
 
-  // 右侧面板：用最近一轮成功响应的 Top 1 引用驱动
-  const topReference = latestTurn?.response?.references[0];
+  async function submitQuestion(question: string) {
+    navigate({
+      search: (prev) => ({ ...prev, q: question, ...(paperId ? { paperId } : {}) }),
+      replace: true,
+    });
+    await command.run(question);
+  }
+
+  const handleSubmit = (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = draft.trim();
+    if (!value || isBusy) return;
+    setDraft("");
+    void submitQuestion(value);
+  };
 
   return (
     <Shell active="None">
       <div className="flex h-[calc(100vh-69px)] flex-col">
-        {/* 页面头 */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div className="flex items-center gap-4">
             <h1 className="text-xl font-semibold tracking-tight">{t("search.pageTitleShort")}</h1>
             <span className="flex items-center gap-2 text-xs uppercase tracking-[0.12em] text-muted-foreground">
               <span className="opacity-70">{t("search.modelLabel")}</span>
               <span className="rounded-md bg-secondary/60 px-2 py-1 font-mono text-[11px] text-foreground">
-                {latestTurn?.response?.model ?? "—"}
+                FASTCLAW-ANALYSE
               </span>
             </span>
+            {paperId ? (
+              <span className="rounded-md border border-border bg-card px-2 py-1 font-mono text-[11px] text-muted-foreground">
+                paper:{paperId}
+              </span>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2">
-            <div className="relative hidden md:block">
-              <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <input
-                type="search"
-                placeholder={t("search.globalSearchPlaceholder")}
-                className="h-9 w-64 rounded-full border border-border bg-card pl-9 pr-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-              />
-            </div>
+          <div className="relative hidden md:block">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <input
+              type="search"
+              placeholder={t("search.globalSearchPlaceholder")}
+              className="h-9 w-64 rounded-full border border-border bg-card pl-9 pr-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            />
           </div>
         </div>
 
-        {/* 主体双栏 */}
         <div className="flex min-h-0 flex-1 gap-6 px-6 pt-6">
-          {/* 左：对话 */}
           <div className="flex min-h-0 flex-1 flex-col">
             <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto pr-2">
               {turns.length === 0 ? (
                 <EmptyConversation />
               ) : (
-                turns.map((turn) => <ConversationTurn key={turn.id} turn={turn} />)
+                turns.map((turn, index) => (
+                  <ConversationTurn
+                    key={turn.userId ?? `turn-${index}`}
+                    turn={turn}
+                    isLast={index === turns.length - 1}
+                    phase={command.phase}
+                  />
+                ))
               )}
+
+              {command.error ? <ErrorBubble message={command.error.message} /> : null}
             </div>
 
-            {/* 底部输入条 */}
             <form
               onSubmit={handleSubmit}
               className="mb-6 mt-4 flex items-center gap-3 rounded-full border border-border bg-card px-5 py-3"
@@ -195,39 +178,51 @@ function RagSearchPage() {
               <input
                 id="rag-chat-input"
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={t("search.chatPlaceholder")}
-                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder={
+                  isBusy ? t("command.inputPlaceholderBusy") : t("search.chatPlaceholder")
+                }
+                className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
                 autoComplete="off"
+                disabled={isBusy}
               />
               <button
                 type="button"
                 aria-label={t("search.attach")}
-                className="rounded-full p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                disabled
+                className="rounded-full p-1.5 text-muted-foreground opacity-40"
               >
                 <Paperclip className="h-4 w-4" aria-hidden />
               </button>
               <button
                 type="submit"
                 aria-label={t("search.submit")}
-                disabled={!draft.trim() || Boolean(latestTurn?.loading)}
+                disabled={!draft.trim() || isBusy}
                 className="grid h-9 w-9 place-items-center rounded-full text-primary-foreground transition-transform hover:scale-105 disabled:opacity-40"
                 style={{ background: "var(--gradient-primary)" }}
               >
-                <Send className="h-4 w-4" aria-hidden />
+                {isBusy ? (
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                ) : (
+                  <Send className="h-4 w-4" aria-hidden />
+                )}
               </button>
             </form>
           </div>
 
-          {/* 右：当前上下文 / 数据抽取 / 执行上下文 */}
           <aside className="hidden w-[360px] shrink-0 space-y-4 overflow-y-auto border-l border-border pl-6 pb-6 lg:block">
-            <CurrentSourceCard reference={topReference} loading={Boolean(latestTurn?.loading)} />
-            <DataExtractionCard reference={topReference} loading={Boolean(latestTurn?.loading)} />
+            <FastClawSourceCard phase={command.phase} latestTool={latestTool} />
+            <StreamStatsCard
+              phase={command.phase}
+              latestEvent={latestEvent}
+              totalEvents={command.transcript.filter((item) => item.kind === "event").length}
+            />
             <ExecutionContextCard
               papersIndexed={scopeQuery.data?.papersIndexed}
-              model={latestTurn?.response?.model ?? null}
-              usedEmbedding={latestTurn?.response?.usedEmbedding ?? null}
-              latencyMs={latestTurn?.loading ? null : 142}
+              turnCount={turns.length}
+              onNewSession={command.newSession}
+              onReset={command.reset}
+              disabled={isBusy}
             />
           </aside>
         </div>
@@ -236,102 +231,167 @@ function RagSearchPage() {
   );
 }
 
-// ---------- 对话单轮 ----------
+type ConversationTurnData = {
+  userId: string | null;
+  userMessage: string | null;
+  events: Extract<FastClawResearchTranscriptItem, { kind: "event" }>[];
+};
+
+function groupTurns(transcript: FastClawResearchTranscriptItem[]): ConversationTurnData[] {
+  const turns: ConversationTurnData[] = [];
+  let current: ConversationTurnData | null = null;
+
+  for (const item of transcript) {
+    if (item.kind === "user") {
+      current = { userId: item.id, userMessage: item.message, events: [] };
+      turns.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { userId: null, userMessage: null, events: [] };
+      turns.push(current);
+    }
+    current.events.push(item);
+  }
+
+  return turns;
+}
 
 function ConversationTurn({
   turn,
+  isLast,
+  phase,
 }: {
-  turn: {
-    id: string;
-    question: string;
-    response: RagQueryResponse | null;
-    error: ApiError | Error | null;
-    loading: boolean;
-  };
+  turn: ConversationTurnData;
+  isLast: boolean;
+  phase: CommandRuntimePhase;
 }) {
   const { t } = useI18n();
-  const llmNotConfigured =
-    turn.error instanceof ApiError && turn.error.code === "LLM_NOT_CONFIGURED";
+  const showSpinner =
+    isLast && turn.events.length === 0 && (phase === "connecting" || phase === "streaming");
 
   return (
     <>
-      {/* 用户气泡 */}
-      <div className="flex items-start gap-3">
-        <UserAvatar />
-        <div className="flex-1 text-sm leading-relaxed text-foreground">{turn.question}</div>
-      </div>
+      {turn.userMessage ? (
+        <div className="flex items-start gap-3">
+          <UserAvatar />
+          <div className="flex-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+            {turn.userMessage}
+          </div>
+        </div>
+      ) : null}
 
-      {/* 助手气泡 */}
       <div className="flex items-start gap-3">
         <AgentAvatar />
         <div className="flex-1 space-y-3">
-          {turn.loading ? (
+          {showSpinner ? (
             <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-              {t("search.loadingReply")}
+              {t("command.waitingFirstEvent")}
             </div>
-          ) : llmNotConfigured ? (
-            <div className="rounded-xl border border-dashed border-primary/40 bg-primary/5 px-4 py-3 text-sm">
-              <div className="font-medium text-primary">{t("search.llmNotConfigured.title")}</div>
-              <div className="mt-1 text-muted-foreground">{t("search.llmNotConfigured.hint")}</div>
-            </div>
-          ) : turn.error ? (
-            <div className="rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-              {t("search.replyError", { message: getErrorMessage(turn.error) })}
-            </div>
-          ) : turn.response ? (
-            <AssistantAnswer response={turn.response} />
-          ) : null}
+          ) : (
+            turn.events.map((item) => <EventBubble key={item.id} event={item.event} />)
+          )}
         </div>
       </div>
     </>
   );
 }
 
-function AssistantAnswer({ response }: { response: RagQueryResponse }) {
+function EventBubble({ event }: { event: CommandStreamEvent }) {
   const { t } = useI18n();
+
+  if (event.type === "agent_message") {
+    return (
+      <Bubble tone="default" icon={<Bot className="h-4 w-4" aria-hidden />}>
+        <ChatMarkdown>{event.message || t("command.event.agentEmpty")}</ChatMarkdown>
+      </Bubble>
+    );
+  }
+
+  if (event.type === "thinking") {
+    return (
+      <Bubble tone="muted" icon={<Loader2 className="h-4 w-4 animate-spin" aria-hidden />}>
+        <ChatMarkdown>{event.message || t("command.phase.streaming")}</ChatMarkdown>
+      </Bubble>
+    );
+  }
+
+  if (event.type === "tool_start") {
+    return (
+      <Bubble tone="primary" icon={<Hammer className="h-4 w-4" aria-hidden />}>
+        <div className="text-sm">
+          {t("command.event.toolStart", {
+            name: event.displayName || event.toolName,
+          })}
+        </div>
+      </Bubble>
+    );
+  }
+
+  if (event.type === "tool_result") {
+    return (
+      <Bubble tone="muted" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />}>
+        <div className="text-sm">
+          {t("command.event.toolResult", {
+            name: event.toolName,
+            summary: event.summary,
+          })}
+        </div>
+      </Bubble>
+    );
+  }
+
+  if (event.type === "error") {
+    return <ErrorBubble message={event.message} />;
+  }
+
+  if (event.type === "final") {
+    const message = event.message || t("command.event.finalDefault");
+    return (
+      <Bubble tone="success" icon={<CheckCircle2 className="h-4 w-4" aria-hidden />}>
+        <ChatMarkdown>{message}</ChatMarkdown>
+      </Bubble>
+    );
+  }
+
+  return null;
+}
+
+function Bubble({
+  tone,
+  icon,
+  children,
+}: {
+  tone: "default" | "muted" | "primary" | "success";
+  icon: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const toneClass = {
+    default: "border-border bg-card",
+    muted: "border-border bg-secondary/40 text-muted-foreground",
+    primary: "border-primary/30 bg-primary/5",
+    success: "border-[oklch(0.74_0.18_155_/_0.35)] bg-[oklch(0.74_0.18_155_/_0.08)]",
+  }[tone];
+
   return (
-    <>
-      <div className="whitespace-pre-wrap rounded-xl border border-border bg-card px-4 py-4 text-sm leading-relaxed">
-        {response.answer}
-      </div>
-      {response.references.length > 0 ? (
-        <>
-          <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {t("search.referencesHeading")}
-          </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            {response.references.map((ref, idx) => (
-              <ReferenceCard key={ref.id} index={idx + 1} ref={ref} />
-            ))}
-          </div>
-        </>
-      ) : null}
-    </>
+    <div className={`flex gap-3 rounded-xl border px-4 py-3 ${toneClass}`}>
+      <span className="mt-0.5 text-primary">{icon}</span>
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
   );
 }
 
-function ReferenceCard({ index, ref }: { index: number; ref: RagQueryReference }) {
-  const authors = ref.authors.slice(0, 2).join(", ");
-  const rest = ref.authors.length > 2 ? ` +${ref.authors.length - 2}` : "";
+function ErrorBubble({ message }: { message: string }) {
+  const { t } = useI18n();
   return (
-    <div className="rounded-xl border border-border bg-card px-4 py-3">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-primary">
-          [{index}]
-        </span>
-        <span className="font-mono text-[10px] tabular-nums text-muted-foreground">
-          {(ref.score * 100).toFixed(0)}%
-        </span>
-      </div>
-      <div className="mt-1 text-sm font-medium leading-snug">{ref.title}</div>
-      <div className="mt-1 text-[11px] text-muted-foreground">
-        {authors || "—"}
-        {rest}
-        {ref.venue ? ` · ${ref.venue}` : ""}
-      </div>
-      <div className="mt-2 line-clamp-4 text-[12px] leading-relaxed text-muted-foreground">
-        {ref.snippet}
+    <div className="flex items-start gap-3">
+      <AgentAvatar />
+      <div className="flex-1 rounded-xl border border-destructive/40 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+        <div className="flex items-start gap-2">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+          <span>{t("search.replyError", { message })}</span>
+        </div>
       </div>
     </div>
   );
@@ -377,23 +437,14 @@ function UserAvatar() {
   );
 }
 
-// ---------- 右侧面板 ----------
-
-function CurrentSourceCard({
-  reference,
-  loading,
+function FastClawSourceCard({
+  phase,
+  latestTool,
 }: {
-  reference: RagQueryReference | undefined;
-  loading: boolean;
+  phase: CommandRuntimePhase;
+  latestTool: string | null;
 }) {
   const { t } = useI18n();
-  if (!reference && !loading) {
-    return (
-      <div className="rounded-2xl border border-dashed border-border bg-card/40 p-5 text-center text-sm text-muted-foreground">
-        {t("search.panels.noSource")}
-      </div>
-    );
-  }
   return (
     <div className="overflow-hidden rounded-2xl border border-border bg-card">
       <div
@@ -405,74 +456,35 @@ function CurrentSourceCard({
         <span className="inline-block rounded-md bg-secondary px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           {t("search.panels.currentSource")}
         </span>
-        <h3 className="text-base font-semibold leading-snug">{loading ? "—" : reference?.title}</h3>
+        <h3 className="text-base font-semibold leading-snug">FastClaw Paper Analysis</h3>
         <div className="flex flex-wrap gap-2">
-          {loading ? (
-            <span className="rounded-md bg-secondary px-2 py-1 text-[11px] text-muted-foreground">
-              …
-            </span>
-          ) : (
-            <>
-              {reference?.venue ? <Tag>{reference.venue}</Tag> : null}
-              {reference?.authors.slice(0, 2).map((a) => (
-                <Tag key={a}>{a}</Tag>
-              ))}
-            </>
-          )}
+          <Tag>agentRole: reader</Tag>
+          <Tag>FASTCLAW_AGENT_PAPER_ANALYSE</Tag>
         </div>
-        {reference ? (
-          <div>
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">{t("search.panels.relevance")}</span>
-              <span className="font-mono tabular-nums text-[oklch(0.74_0.18_155)]">
-                {(reference.score * 100).toFixed(1)}%
-              </span>
-            </div>
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
-              <div
-                className="h-full rounded-full bg-[oklch(0.74_0.18_155)]"
-                style={{ width: `${Math.min(100, Math.round(reference.score * 100))}%` }}
-              />
-            </div>
+        <div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">{t("command.phase.streaming")}</span>
+            <span className="font-mono tabular-nums text-[oklch(0.74_0.18_155)]">{phase}</span>
           </div>
-        ) : null}
+          <div className="mt-2 rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground">
+            {latestTool ? `Latest tool: ${latestTool}` : "Waiting for FastClaw events"}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
-function DataExtractionCard({
-  reference,
-  loading,
+function StreamStatsCard({
+  phase,
+  latestEvent,
+  totalEvents,
 }: {
-  reference: RagQueryReference | undefined;
-  loading: boolean;
+  phase: CommandRuntimePhase;
+  latestEvent: CommandStreamEvent | null;
+  totalEvents: number;
 }) {
   const { t } = useI18n();
-  // 后端没有"结构化指标抽取" API，这里基于 reference 展示一批真实元数据
-  // （相关度、作者数、venue、摘要长度）。UI 上每格都是 reference 里的真实值，
-  // 不再是示例数据。
-  const rows = useMemo(
-    () =>
-      reference
-        ? [
-            {
-              metric: "Relevance",
-              value: `${(reference.score * 100).toFixed(1)}%`,
-              unit: "%",
-            },
-            { metric: "Authors", value: String(reference.authors.length), unit: "—" },
-            { metric: "Venue", value: reference.venue ?? "—", unit: "—" },
-            {
-              metric: "Snippet",
-              value: `${reference.snippet.length}`,
-              unit: "chars",
-            },
-          ]
-        : [],
-    [reference],
-  );
-
   return (
     <div className="rounded-2xl border border-border bg-card p-5">
       <div className="flex items-center justify-between">
@@ -487,49 +499,35 @@ function DataExtractionCard({
           <Filter className="h-3.5 w-3.5" aria-hidden />
         </button>
       </div>
-      {loading ? (
-        <div className="mt-4 text-xs text-muted-foreground">…</div>
-      ) : rows.length === 0 ? (
-        <div className="mt-4 text-xs text-muted-foreground">{t("search.panels.noSource")}</div>
-      ) : (
-        <table className="mt-4 w-full text-xs">
-          <thead>
-            <tr className="border-b border-border text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
-              <th className="py-2 text-left font-medium">{t("search.panels.metric")}</th>
-              <th className="py-2 text-left font-medium">{t("search.panels.value")}</th>
-              <th className="py-2 text-left font-medium">{t("search.panels.unit")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.metric} className="border-b border-border/60 last:border-none">
-                <td className="py-2 font-mono text-muted-foreground">{r.metric}</td>
-                <td className="py-2 font-mono text-primary">{r.value}</td>
-                <td className="py-2 font-mono text-muted-foreground">{r.unit}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <table className="mt-4 w-full text-xs">
+        <tbody>
+          <StatsRow label="Phase" value={phase} />
+          <StatsRow label="Events" value={String(totalEvents)} />
+          <StatsRow label="Latest" value={latestEvent ? summarizeEvent(latestEvent) : "-"} />
+        </tbody>
+      </table>
     </div>
   );
 }
 
 function ExecutionContextCard({
   papersIndexed,
-  model,
-  usedEmbedding,
-  latencyMs,
+  turnCount,
+  onNewSession,
+  onReset,
+  disabled,
 }: {
   papersIndexed: number | undefined;
-  model: string | null;
-  usedEmbedding: boolean | null;
-  latencyMs: number | null;
+  turnCount: number;
+  onNewSession: () => void;
+  onReset: () => void;
+  disabled: boolean;
 }) {
   const { t } = useI18n();
-  const contextUsed = 12_482;
+  const contextUsed = Math.max(1, turnCount) * 4096;
   const contextMax = 128_000;
-  const pct = Math.round((contextUsed / contextMax) * 100);
+  const pct = Math.min(100, Math.round((contextUsed / contextMax) * 100));
+
   return (
     <div className="space-y-4 rounded-2xl border border-border bg-card p-5">
       <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -540,15 +538,10 @@ function ExecutionContextCard({
           <span className="h-2 w-2 rounded-full bg-[oklch(0.74_0.18_155)]" aria-hidden />
           {t("search.panels.ragOnline")}
           <span className="text-muted-foreground">
-            {papersIndexed !== undefined ? ` · ${papersIndexed}` : ""}
+            {papersIndexed !== undefined ? ` / ${papersIndexed}` : ""}
           </span>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {t("search.panels.latency")}:{" "}
-          <span className="font-mono tabular-nums text-foreground">
-            {latencyMs !== null ? `${latencyMs}ms` : "—"}
-          </span>
-        </div>
+        <div className="font-mono text-xs text-muted-foreground">{turnCount} turns</div>
       </div>
       <div>
         <div className="flex items-center justify-between text-xs">
@@ -570,34 +563,38 @@ function ExecutionContextCard({
         </div>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <MetaCell
-          label={t("search.panels.embeddings")}
-          value={
-            usedEmbedding === null
-              ? "—"
-              : usedEmbedding
-                ? t("search.usedEmbedding.yes")
-                : t("search.usedEmbedding.no")
-          }
-        />
-        <MetaCell label="Chat model" value={model ?? "—"} />
+        <MetaCell label={t("search.panels.embeddings")} value="FastClaw tools" />
+        <MetaCell label="Chat model" value="FASTCLAW-ANALYSE" />
       </div>
       <div className="grid grid-cols-2 gap-3">
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground"
+          onClick={onReset}
+          disabled={disabled}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background/40 px-3 py-2 text-xs text-muted-foreground hover:border-primary/40 hover:text-foreground disabled:opacity-50"
         >
-          <Download className="h-3.5 w-3.5" aria-hidden /> {t("search.panels.exportData")}
+          <Download className="h-3.5 w-3.5" aria-hidden /> Reset
         </button>
         <button
           type="button"
-          className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-primary-foreground"
+          onClick={onNewSession}
+          disabled={disabled}
+          className="inline-flex items-center justify-center gap-2 rounded-lg px-3 py-2 text-xs text-primary-foreground disabled:opacity-50"
           style={{ background: "var(--gradient-primary)" }}
         >
-          <Share2 className="h-3.5 w-3.5" aria-hidden /> {t("search.panels.shareResult")}
+          <Share2 className="h-3.5 w-3.5" aria-hidden /> New Session
         </button>
       </div>
     </div>
+  );
+}
+
+function StatsRow({ label, value }: { label: string; value: string }) {
+  return (
+    <tr className="border-b border-border/60 last:border-none">
+      <td className="py-2 font-mono text-muted-foreground">{label}</td>
+      <td className="py-2 text-right font-mono text-primary">{value}</td>
+    </tr>
   );
 }
 
@@ -605,7 +602,7 @@ function MetaCell({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-lg border border-border bg-background/40 px-3 py-2">
       <div className="text-[10px] uppercase tracking-[0.14em] text-muted-foreground">{label}</div>
-      <div className="mt-1 font-mono text-sm tabular-nums">{value}</div>
+      <div className="mt-1 truncate font-mono text-sm tabular-nums">{value}</div>
     </div>
   );
 }
@@ -618,11 +615,22 @@ function Tag({ children }: { children: React.ReactNode }) {
   );
 }
 
-function getErrorMessage(err: unknown): string {
-  if (err instanceof ApiError) return err.message;
-  if (err instanceof Error) return err.message;
-  return String(err);
+function summarizeEvent(event: CommandStreamEvent): string {
+  switch (event.type) {
+    case "thinking":
+    case "agent_message":
+      return event.message.slice(0, 60) || event.type;
+    case "tool_start":
+      return event.displayName || event.toolName;
+    case "tool_result":
+      return event.summary.slice(0, 60) || event.toolName;
+    case "need_confirmation":
+      return event.message.slice(0, 60);
+    case "final":
+      return event.message?.slice(0, 60) || "final";
+    case "error":
+      return event.message.slice(0, 60);
+    default:
+      return "event";
+  }
 }
-
-// tree-shaking friendly unused-var guard
-void cn;

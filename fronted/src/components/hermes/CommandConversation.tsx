@@ -1,6 +1,4 @@
 import { useEffect, useRef } from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   AlertTriangle,
   Bot,
@@ -15,6 +13,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { ChatMarkdown } from "@/components/hermes/ChatMarkdown";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { CommandRuntimePhase, CommandStreamEvent } from "@/types/command";
 import type { ActiveConfirmation, CommandTranscriptItem } from "@/hooks/use-command-stream";
@@ -280,7 +279,7 @@ function AgentRow({
         <Icon className={cn("h-4 w-4", spin && "animate-spin")} aria-hidden />
       </span>
       <div className={cn("min-w-0 flex-1 rounded-xl bg-background px-3 py-2 text-sm", textTone)}>
-        <Markdown>{text}</Markdown>
+        <ChatMarkdown>{text}</ChatMarkdown>
       </div>
     </div>
   );
@@ -319,7 +318,7 @@ function FinalRow({ event }: { event: Extract<CommandStreamEvent, { type: "final
         <Icon className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0 flex-1 rounded-xl border border-border bg-background px-3 py-2 text-sm">
-        <Markdown>{headline}</Markdown>
+        <ChatMarkdown>{headline}</ChatMarkdown>
         {leftover !== undefined ? <ResultPreview value={leftover} /> : null}
       </div>
     </div>
@@ -371,84 +370,6 @@ function safeStringify(v: unknown): string | null {
   } catch {
     return null;
   }
-}
-
-// ---------- Markdown ----------
-
-/**
- * Agent/final 消息使用 GFM Markdown 渲染，保留标题、粗体、表格、代码等排版。
- * 用 Tailwind 小型化样式覆盖 react-markdown 的默认输出，避免引入 @tailwindcss/typography。
- */
-function Markdown({ children }: { children: string }) {
-  return (
-    <div className="command-md space-y-2 text-sm leading-relaxed break-words">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: (props) => <h3 className="mt-1 text-base font-semibold" {...props} />,
-          h2: (props) => <h4 className="mt-1 text-sm font-semibold" {...props} />,
-          h3: (props) => <h5 className="mt-1 text-sm font-semibold" {...props} />,
-          h4: (props) => <h6 className="mt-1 text-sm font-semibold" {...props} />,
-          p: (props) => <p className="leading-relaxed" {...props} />,
-          ul: (props) => <ul className="list-disc space-y-1 pl-5" {...props} />,
-          ol: (props) => <ol className="list-decimal space-y-1 pl-5" {...props} />,
-          li: (props) => <li className="leading-relaxed" {...props} />,
-          strong: (props) => <strong className="font-semibold" {...props} />,
-          em: (props) => <em className="italic" {...props} />,
-          hr: () => <hr className="my-2 border-border" />,
-          a: ({ href, ...rest }) => (
-            <a
-              href={href}
-              target="_blank"
-              rel="noreferrer"
-              className="text-primary underline-offset-2 hover:underline"
-              {...rest}
-            />
-          ),
-          blockquote: (props) => (
-            <blockquote
-              className="border-l-2 border-border pl-3 text-muted-foreground"
-              {...props}
-            />
-          ),
-          code: ({ className, children, ...rest }) => {
-            const isBlock = /language-/.test(className ?? "");
-            if (isBlock) {
-              return (
-                <code className={cn("block font-mono text-xs", className)} {...rest}>
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <code
-                className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[0.85em]"
-                {...rest}
-              >
-                {children}
-              </code>
-            );
-          },
-          pre: (props) => (
-            <pre
-              className="max-h-56 overflow-auto rounded-lg bg-secondary/60 p-2 text-xs leading-relaxed"
-              {...props}
-            />
-          ),
-          table: (props) => (
-            <div className="overflow-x-auto">
-              <table className="my-1 w-full border-collapse text-left text-xs" {...props} />
-            </div>
-          ),
-          thead: (props) => <thead className="bg-secondary/60" {...props} />,
-          th: (props) => <th className="border border-border px-2 py-1 font-semibold" {...props} />,
-          td: (props) => <td className="border border-border px-2 py-1 align-top" {...props} />,
-        }}
-      >
-        {children}
-      </ReactMarkdown>
-    </div>
-  );
 }
 
 // ---------- Confirmation card ----------

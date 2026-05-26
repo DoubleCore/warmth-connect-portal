@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import {
   ActivitySquare,
   AlertTriangle,
@@ -19,6 +17,7 @@ import {
   User,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
+import { ChatMarkdown } from "@/components/hermes/ChatMarkdown";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { listReproductionRecords } from "@/api/reproduction";
 import { listDevices } from "@/api/devices";
@@ -310,7 +309,7 @@ function CommandInterfacePanel({
           }
           return (
             <SystemBubble key={msg.id}>
-              <DeployMarkdown>{msg.content}</DeployMarkdown>
+              <ChatMarkdown>{msg.content}</ChatMarkdown>
             </SystemBubble>
           );
         })}
@@ -422,50 +421,6 @@ function SlashChip({ children, onClick }: { children: React.ReactNode; onClick?:
     >
       {children}
     </button>
-  );
-}
-
-/** Markdown 渲染组件 — 复用 /research 页面的样式 */
-function DeployMarkdown({ children }: { children: string }) {
-  return (
-    <div className="command-md space-y-2 text-sm leading-relaxed break-words">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          h1: (props) => <h3 className="mt-1 text-base font-semibold" {...props} />,
-          h2: (props) => <h4 className="mt-1 text-sm font-semibold" {...props} />,
-          h3: (props) => <h5 className="mt-1 text-sm font-semibold" {...props} />,
-          p: (props) => <p className="leading-relaxed" {...props} />,
-          ul: (props) => <ul className="list-disc space-y-1 pl-5" {...props} />,
-          ol: (props) => <ol className="list-decimal space-y-1 pl-5" {...props} />,
-          li: (props) => <li className="leading-relaxed" {...props} />,
-          strong: (props) => <strong className="font-semibold" {...props} />,
-          a: ({ href, ...rest }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline" {...rest} />
-          ),
-          blockquote: (props) => (
-            <blockquote className="border-l-2 border-border pl-3 text-muted-foreground" {...props} />
-          ),
-          code: ({ className, children: codeChildren, ...rest }) => {
-            const isBlock = /language-/.test(className ?? "");
-            if (isBlock) {
-              return <code className={cn("block font-mono text-xs", className)} {...rest}>{codeChildren}</code>;
-            }
-            return <code className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[0.85em]" {...rest}>{codeChildren}</code>;
-          },
-          pre: (props) => (
-            <pre className="max-h-56 overflow-auto rounded-lg bg-secondary/60 p-2 text-xs leading-relaxed" {...props} />
-          ),
-          table: (props) => (
-            <div className="overflow-x-auto"><table className="my-1 w-full border-collapse text-left text-xs" {...props} /></div>
-          ),
-          th: (props) => <th className="border border-border px-2 py-1 font-semibold" {...props} />,
-          td: (props) => <td className="border border-border px-2 py-1 align-top" {...props} />,
-        }}
-      >
-        {children}
-      </ReactMarkdown>
-    </div>
   );
 }
 

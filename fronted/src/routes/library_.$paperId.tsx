@@ -194,7 +194,7 @@ function PaperDetailPage() {
             </div>
             <Link
               to="/search"
-              search={{ q: paper.title }}
+              search={{ q: `Analyze this paper: ${paper.title}`, paperId: paper.id }}
               className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-primary-foreground"
               style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
             >
