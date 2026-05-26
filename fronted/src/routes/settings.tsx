@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { SlidersHorizontal, ChevronRight } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { ProfileSection } from "@/components/hermes/ProfileSection";
+import { AgentsSection } from "@/components/hermes/AgentsSection";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useTheme } from "@/lib/theme/ThemeProvider";
@@ -83,6 +84,7 @@ function SettingsPage() {
 
         <div className="mt-8 flex flex-col gap-6">
           <ProfileSection />
+          <AgentsSection />
 
           <section
             aria-labelledby="prefs-heading"

@@ -7,6 +7,7 @@
     "dev": "vite dev",
     "build": "vite build",
     "build:dev": "vite build --mode development",
+    "build:desktop": "node ./scripts/build-desktop.mjs",
     "preview": "vite preview",
     "lint": "eslint .",
     "format": "prettier --write ."
@@ -85,6 +86,7 @@
     "prettier": "^3.7.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.56.1",
-    "vite": "^7.3.1"
+    "vite": "^7.3.1",
+    "warmth-connect-backend": "file:../backend"
   }
 }

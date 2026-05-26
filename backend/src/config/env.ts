@@ -36,6 +36,39 @@ const envSchema = z.object({
   /** 论文搜索 Agent */
   FASTCLAW_AGENT_RESEARCHER: optionalString(),
 
+  // ---------- Agent 配置（per-agent agent.json 持久化） ----------
+  /**
+   * Agent 配置目录。每个 agent 一份子目录：
+   *   <AGENTS_DIR>/<agent-id>/agent.json
+   *   <AGENTS_DIR>/<agent-id>/skills/...
+   *   <AGENTS_DIR>/<agent-id>/memory/...
+   *   <AGENTS_DIR>/<agent-id>/conversations/...
+   *
+   * 默认相对 backend 根目录。打包后启动器会把 data/agents 的绝对路径塞进来。
+   */
+  AGENTS_DIR: z.string().min(1).default("./data/agents"),
+  /**
+   * 渲染给 FastClaw `-config` 的 JSON 路径。后端启动 / agent 配置变更时会写入这个文件，
+   * 启动器读取它再拉起 hermes-fastclaw.exe。运行期可以由 backend 自己重启 fastclaw 子进程
+   * （v1 不重启，下一阶段补）。
+   */
+  FASTCLAW_CONFIG_PATH: z.string().min(1).default("./data/config/fastclaw.json"),
+  /**
+   * FastClaw 的 defaultAgentId。当请求未指定 agent 时回退到这一项。
+   * 不填则取 FASTCLAW_AGENT_ID；再不填就用 paper-search agent。
+   */
+  FASTCLAW_DEFAULT_AGENT_ID: optionalString(),
+
+  // ---------- 前端静态托管（仅桌面安装包用） ----------
+  /**
+   * 桌面打包后由启动器塞进来：指向 `app/frontend/`（含 prerender 出来的 index.html
+   * 和 `assets/...`）。留空 → backend 不挂载静态资源（开发场景由 vite dev server 服务前端）。
+   *
+   * 路径必须可被 fs 访问；启动期 `bootstrap` 阶段会做存在性检查并把日志带出来，避免
+   * "桌面包装好之后用户访问根路径只看到 404" 这种沉默失败。
+   */
+  FRONTEND_STATIC_DIR: optionalString(),
+
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
   // 任意 OpenAI 兼容的服务都行（OpenAI / DeepSeek / 本地 ollama / DashScope 兼容模式）。

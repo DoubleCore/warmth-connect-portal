@@ -1,0 +1,1 @@
+import{k as n}from"./index-Db4ZwWpT.js";async function i(){return n("/api/devices")}async function o(e){return n("/api/devices",{method:"POST",json:e})}async function s(e,c){return n(`/api/devices/${encodeURIComponent(e)}`,{method:"PATCH",json:c})}async function a(e){return n(`/api/devices/${encodeURIComponent(e)}`,{method:"DELETE"})}export{o as c,a as d,i as l,s as u};

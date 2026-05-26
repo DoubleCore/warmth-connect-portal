@@ -6,8 +6,15 @@ import {
   startHostTrackingScheduler,
   stopHostTrackingScheduler,
 } from "./modules/host-tracking/host-tracking.scheduler.js";
+import { bootstrapAgents } from "./modules/agents/agents.service.js";
 
 const app = createApp();
+
+// 启动期：补齐种子 agent.json 并渲染 fastclaw.json。
+// 失败不阻塞 HTTP 起服 — 用户仍可以从 settings 页继续修配置。
+bootstrapAgents().catch((err) => {
+  logger.error({ err }, "bootstrapAgents failed");
+});
 
 const server = serve(
   {
