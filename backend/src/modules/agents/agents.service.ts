@@ -166,12 +166,19 @@ export async function updateAgent(
 
   const written = await writeAgent(nextFile);
 
-  // 任何修改都触发 fastclaw 配置重渲染。后续 v1.1 会顺势重启 fastclaw 子进程。
+  // 任何修改都触发 fastclaw 配置重渲染。
   try {
     await renderFastclawConfig();
   } catch (err) {
     log.error({ err, agentId }, "renderFastclawConfig after update failed");
   }
+
+  // 装包模式下，让 launcher 重启 fastclaw 子进程，让新配置立刻生效。
+  // 异步 fire-and-forget — 重启失败不应阻塞用户的"保存成功"反馈。dev 模式下
+  // HERMES_LAUNCHER_CONTROL_URL 为空，函数立即 noop。
+  notifyLauncherRestartFastclaw().catch((err) =>
+    log.warn({ err, agentId }, "notify launcher restart failed (non-fatal)"),
+  );
 
   const mtime = await getAgentMtime(agentId);
   return toDto(written, mtime);
@@ -342,4 +349,37 @@ function joinUrl(base: string, path: string): string {
   const b = base.replace(/\/+$/, "");
   const p = path.startsWith("/") ? path : `/${path}`;
   return `${b}${p}`;
+}
+
+/**
+ * 通知 Hermes 启动器重启 fastclaw 子进程。
+ *
+ * 仅当 `HERMES_LAUNCHER_CONTROL_URL` 设置（即 backend 由 Hermes.exe 启动器拉起）时
+ * 生效；dev / 测试场景下函数立即返回。失败 silently log + return —— 调用方
+ * （updateAgent / testAgent / 后续可能的批量保存）只关心配置已落盘，重启是 nice-to-have。
+ */
+async function notifyLauncherRestartFastclaw(): Promise<void> {
+  const base = env.HERMES_LAUNCHER_CONTROL_URL;
+  if (!base) return;
+
+  const url = joinUrl(base, "/control/fastclaw/restart");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 3_000);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      signal: controller.signal,
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      log.warn(
+        { status: res.status, body: body.slice(0, 200) },
+        "launcher restart returned non-2xx",
+      );
+    }
+  } catch (err) {
+    log.warn({ err, url }, "launcher restart request failed");
+  } finally {
+    clearTimeout(timer);
+  }
 }

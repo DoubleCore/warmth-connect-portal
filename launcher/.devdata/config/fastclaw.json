@@ -1,0 +1,54 @@
+{
+  "defaultAgentId": "agt_44d05b7677054cebfdad",
+  "agents": [
+    {
+      "id": "agt_f908ad32af3120090a37",
+      "role": "paper-search",
+      "name": "论文搜索助手",
+      "model": "deepseek-v4-pro",
+      "maxTokens": 8192,
+      "temperature": 0.4,
+      "maxToolIterations": 20,
+      "home": "F:\\Hermes\\warmth-connect-portal\\launcher\\.devdata\\agents\\agt_f908ad32af3120090a37",
+      "workspace": "F:\\Hermes\\warmth-connect-portal\\launcher\\.devdata\\workspaces\\agt_f908ad32af3120090a37",
+      "providers": {
+        "openai": {
+          "apiKey": "sk-46a6c0d8ce904c81b35f52c23a20e255",
+          "apiBase": "https://api.deepseek.com"
+        }
+      }
+    },
+    {
+      "id": "agt_18b2eb56cb44f511848e",
+      "role": "rag-paper-reader",
+      "name": "RAG 论文阅读助手",
+      "model": "openai/gpt-4o-mini",
+      "maxTokens": 8192,
+      "temperature": 0.3,
+      "maxToolIterations": 20,
+      "home": "F:\\Hermes\\warmth-connect-portal\\launcher\\.devdata\\agents\\agt_18b2eb56cb44f511848e",
+      "workspace": "F:\\Hermes\\warmth-connect-portal\\launcher\\.devdata\\workspaces\\agt_18b2eb56cb44f511848e",
+      "providers": {
+        "openai": {
+          "apiBase": "https://api.openai.com/v1"
+        }
+      }
+    },
+    {
+      "id": "agt_44d05b7677054cebfdad",
+      "role": "paper-deploy",
+      "name": "论文部署助手",
+      "model": "openai/gpt-4o-mini",
+      "maxTokens": 8192,
+      "temperature": 0.2,
+      "maxToolIterations": 30,
+      "home": "F:\\Hermes\\warmth-connect-portal\\launcher\\.devdata\\agents\\agt_44d05b7677054cebfdad",
+      "workspace": "F:\\Hermes\\warmth-connect-portal\\launcher\\.devdata\\workspaces\\agt_44d05b7677054cebfdad",
+      "providers": {
+        "openai": {
+          "apiBase": "https://api.openai.com/v1"
+        }
+      }
+    }
+  ]
+}

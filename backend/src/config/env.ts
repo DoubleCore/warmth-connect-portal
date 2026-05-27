@@ -69,6 +69,16 @@ const envSchema = z.object({
    */
   FRONTEND_STATIC_DIR: optionalString(),
 
+  // ---------- Hermes Launcher 控制通道 ----------
+  /**
+   * 桌面安装包模式下，由 Hermes.exe 启动器注入。指向 launcher 的本地控制 HTTP，
+   * 仅 127.0.0.1 监听。backend 在用户改完 agent 配置后会请求 `/control/fastclaw/restart`
+   * 让 launcher 把 fastclaw 子进程重启一次，让新的 API Key / model 立即生效。
+   *
+   * 留空 → backend 不调用（dev 场景或者 launcher 没有用到时）。
+   */
+  HERMES_LAUNCHER_CONTROL_URL: optionalString(),
+
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
   // 任意 OpenAI 兼容的服务都行（OpenAI / DeepSeek / 本地 ollama / DashScope 兼容模式）。

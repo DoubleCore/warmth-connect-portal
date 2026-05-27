@@ -93,6 +93,7 @@ func (p *OpenAIProvider) Chat(ctx context.Context, messages []agentcore.Message,
 	choice := result.Choices[0]
 	response := &agentcore.Response{
 		Content:      choice.Message.Content,
+		Thinking:     choice.Message.ReasoningContent,
 		RawAssistant: respBody,
 	}
 
@@ -172,6 +173,7 @@ func (p *OpenAIProvider) readSSEStream(body io.ReadCloser, ch chan agentcore.Str
 	defer close(ch)
 
 	var contentBuilder strings.Builder
+	var reasoningBuilder strings.Builder
 	var toolCalls []agentcore.ToolCall
 
 	buf := make([]byte, 4096)
@@ -200,6 +202,7 @@ func (p *OpenAIProvider) readSSEStream(body io.ReadCloser, ch chan agentcore.Str
 					ch <- agentcore.StreamChunk{
 						Done:      true,
 						Content:   contentBuilder.String(),
+						Thinking:  reasoningBuilder.String(),
 						ToolCalls: toolCalls,
 					}
 					return
@@ -215,6 +218,12 @@ func (p *OpenAIProvider) readSSEStream(body io.ReadCloser, ch chan agentcore.Str
 					if delta.Content != "" {
 						contentBuilder.WriteString(delta.Content)
 						ch <- agentcore.StreamChunk{Content: delta.Content}
+					}
+					if delta.ReasoningContent != "" {
+						// 累加但不流给上层 — 调用方更关心 final answer，把
+						// reasoning 留到 Done chunk 里一次性送出。如果以后要
+						// 在前端实时展示思考过程，再多发一种 chunk 类型。
+						reasoningBuilder.WriteString(delta.ReasoningContent)
 					}
 					// Accumulate tool calls
 					for _, tc := range delta.ToolCalls {
@@ -243,6 +252,7 @@ func (p *OpenAIProvider) readSSEStream(body io.ReadCloser, ch chan agentcore.Str
 			ch <- agentcore.StreamChunk{
 				Done:      true,
 				Content:   contentBuilder.String(),
+				Thinking:  reasoningBuilder.String(),
 				ToolCalls: toolCalls,
 			}
 			return
@@ -257,10 +267,13 @@ func convertMessages(messages []agentcore.Message) []map[string]interface{} {
 		msg := map[string]interface{}{
 			"role": m.Role,
 		}
-		if m.Content != "" {
-			msg["content"] = m.Content
-		}
-		if len(m.ContentParts) > 0 {
+		// 多模态优先：有 ContentParts 用它，否则用 Content。
+		// content 字段必须存在 — 标准 OpenAI 允许 assistant 只带 tool_calls 时缺省，
+		// 但讯飞 maas 之类的兼容层会严格校验 schema 报
+		// "Failed to deserialize the JSON body: missing field content"。
+		// 缺省值用空串，对所有 provider 都安全。
+		switch {
+		case len(m.ContentParts) > 0:
 			parts := make([]map[string]interface{}, 0, len(m.ContentParts))
 			for _, p := range m.ContentParts {
 				part := map[string]interface{}{"type": p.Type}
@@ -275,6 +288,15 @@ func convertMessages(messages []agentcore.Message) []map[string]interface{} {
 				parts = append(parts, part)
 			}
 			msg["content"] = parts
+		default:
+			msg["content"] = m.Content
+		}
+		// thinking-mode 模型（讯飞 / DeepSeek-R1 / 阿里 QwQ）要求把上一轮
+		// 的 reasoning_content 原样回传，否则下一轮 400。我们把它存在
+		// agentcore.Message.Thinking 里，序列化时只在 assistant 角色上还原。
+		// 普通 OpenAI 模型会忽略多余字段，不会因此报错。
+		if m.Role == "assistant" && m.Thinking != "" {
+			msg["reasoning_content"] = m.Thinking
 		}
 		if len(m.ToolCalls) > 0 {
 			msg["tool_calls"] = m.ToolCalls
@@ -301,8 +323,16 @@ type openAIChoice struct {
 }
 
 type openAIMessage struct {
-	Content   string           `json:"content"`
-	ToolCalls []openAIToolCall `json:"tool_calls,omitempty"`
+	Content string `json:"content"`
+	// ReasoningContent 是讯飞 / DeepSeek-R1 / 阿里 QwQ 等 thinking 模式模型在
+	// OpenAI 兼容协议上扩展出来的字段。下一轮请求必须把它原样回传，否则
+	// 讯飞会返回 400 invalid_request_error: "The reasoning_content in the
+	// thinking mode must be passed back to the API."。
+	//
+	// 我们把它映射到 agentcore.Message.Thinking，convertMessages 在序列化
+	// assistant 消息时再写回 reasoning_content 字段，构成完整闭环。
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []openAIToolCall `json:"tool_calls,omitempty"`
 }
 
 type openAIToolCall struct {
@@ -331,8 +361,10 @@ type openAIStreamChoice struct {
 }
 
 type openAIStreamDelta struct {
-	Content   string                    `json:"content,omitempty"`
-	ToolCalls []openAIStreamToolCall    `json:"tool_calls,omitempty"`
+	Content string `json:"content,omitempty"`
+	// 见 openAIMessage.ReasoningContent 的注释。流式分多个 chunk 累加。
+	ReasoningContent string                 `json:"reasoning_content,omitempty"`
+	ToolCalls        []openAIStreamToolCall `json:"tool_calls,omitempty"`
 }
 
 type openAIStreamToolCall struct {

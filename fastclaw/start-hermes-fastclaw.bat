@@ -4,13 +4,23 @@ setlocal
 set "FASTCLAW_ROOT=%~dp0"
 set "PROJECT_ROOT=%FASTCLAW_ROOT%.."
 
-REM Reuse backend local LLM/FastClaw env when present. Explicit shell env wins.
+REM Force Go HTTP client to use HTTP/1.1.
+REM On Tailscale + some OpenAI-compatible gateways (e.g. xfyun maas-coding-api),
+REM Go's default HTTP/2 handshake hangs at "timeout awaiting response headers".
+REM Falling back to h1 makes the calls go through. See net/http GODEBUG docs.
+set "GODEBUG=http2client=0"
+
+REM Pull selected env from backend\.env via a PowerShell helper. The helper writes
+REM ASCII KEY=VALUE lines to a temp file so the bat-side `for /f` cannot trip
+REM over UTF-8 / Chinese comments. Explicit shell env still wins.
+set "FASTCLAW_ENV_TMP=%TEMP%\hermes-fastclaw-env.tmp"
 if exist "%PROJECT_ROOT%\backend\.env" (
-  for /f "usebackq tokens=1,* delims==" %%A in ("%PROJECT_ROOT%\backend\.env") do (
-    if not defined AGENT_API_KEY if "%%A"=="LLM_API_KEY" set "AGENT_API_KEY=%%B"
-    if not defined AGENT_API_BASE if "%%A"=="LLM_API_BASE_URL" set "AGENT_API_BASE=%%B"
-    if not defined AGENT_MODEL if "%%A"=="LLM_CHAT_MODEL" set "AGENT_MODEL=%%B"
-    if not defined FASTCLAW_API_KEY if "%%A"=="FASTCLAW_API_KEY" set "FASTCLAW_API_KEY=%%B"
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%FASTCLAW_ROOT%scripts\extract-env.ps1" -EnvFile "%PROJECT_ROOT%\backend\.env" -OutFile "%FASTCLAW_ENV_TMP%" >nul
+  if exist "%FASTCLAW_ENV_TMP%" (
+    for /f "usebackq tokens=1,* delims==" %%A in ("%FASTCLAW_ENV_TMP%") do (
+      if not defined %%A set "%%A=%%B"
+    )
+    del "%FASTCLAW_ENV_TMP%"
   )
 )
 

@@ -1,0 +1,13 @@
+{
+  "id": "agt_44d05b7677054cebfdad",
+  "role": "paper-deploy",
+  "displayName": "论文部署助手",
+  "model": "openai/gpt-4o-mini",
+  "temperature": 0.2,
+  "maxTokens": 8192,
+  "maxToolIterations": 30,
+  "provider": {
+    "kind": "openai",
+    "apiBase": "https://api.openai.com/v1"
+  }
+}

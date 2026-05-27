@@ -7,6 +7,17 @@ import {
   stopHostTrackingScheduler,
 } from "./modules/host-tracking/host-tracking.scheduler.js";
 import { bootstrapAgents } from "./modules/agents/agents.service.js";
+import { runMigrations } from "./db/auto-migrate.js";
+
+// 启动期最先做：把 schema migrate 到最新版本。
+// 任何模块（包括 createApp 里被 import 触发的 db 初始化）都依赖表存在，所以 migrate
+// 必须在 createApp() 之前。失败 = 整个进程退出，避免带着残缺 schema 起服。
+try {
+  runMigrations();
+} catch (err) {
+  logger.fatal({ err }, "Database migration failed at startup");
+  process.exit(1);
+}
 
 const app = createApp();
 
