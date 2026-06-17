@@ -22,7 +22,13 @@ import { listReproductionRecords } from "@/api/reproduction";
 import { listDevices } from "@/api/devices";
 import { cn } from "@/lib/utils";
 import { useFastClawDeploy } from "@/hooks/use-fastclaw-deploy";
-import { getHostDetail, getHostMetricsHistory, type HostMetricsDto, type HostWithLatestMetricsDto } from "@/api/host-tracking";
+import { FastclawToolCard, FastclawProgressRow } from "@/components/hermes/FastclawToolCard";
+import {
+  getHostDetail,
+  getHostMetricsHistory,
+  type HostMetricsDto,
+  type HostWithLatestMetricsDto,
+} from "@/api/host-tracking";
 import type { ReproductionRecord, ReproductionStatus } from "@/types/reproduction";
 
 /**
@@ -209,7 +215,7 @@ function CommandInterfacePanel({
     if (!deploy.restored) return;
     if (!active || active.status !== "running") return;
     if (!active.device) return;
-    if (deploy.messages.length > 0) {
+    if (deploy.items.length > 0) {
       // 已经有恢复出来的对话，标记为 fired，避免之后被错误重发。
       firedKeyRef.current = active.id;
       return;
@@ -227,20 +233,14 @@ function CommandInterfacePanel({
       // 把"做什么"作为用户气泡显示出来，避免初始化指令隐式发出后用户盯着空白等。
       `请帮我把《${active.paper.title}》部署到设备「${active.device.name}」上，并按标准流程拉代码、装依赖、跑训练。`,
     );
-  }, [
-    deploy.restored,
-    deploy.messages.length,
-    deploy.phase,
-    active,
-    deploy,
-  ]);
+  }, [deploy.restored, deploy.items.length, deploy.phase, active, deploy]);
 
   // 自动滚动到底部
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [deploy.messages]);
+  }, [deploy.items]);
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -277,41 +277,50 @@ function CommandInterfacePanel({
       </div>
 
       <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5">
-        {deploy.messages.length === 0 && deploy.phase === "idle" && (
+        {deploy.items.length === 0 && deploy.phase === "idle" && (
           <div className="text-center text-sm text-muted-foreground py-12">
             {t("manager.chat.waitingDeploy")}
           </div>
         )}
 
-        {deploy.messages.map((msg) => {
-          if (msg.role === "system") {
-            return (
-              <div key={msg.id} className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-                {msg.content}
-              </div>
-            );
+        {deploy.items.map((item) => {
+          switch (item.kind) {
+            case "system":
+              return (
+                <div
+                  key={item.id}
+                  className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground"
+                >
+                  {item.content}
+                </div>
+              );
+            case "user":
+              return <UserBubble key={item.id}>{item.content}</UserBubble>;
+            case "tool":
+              return <FastclawToolCard key={item.id} item={item} />;
+            case "progress":
+              return <FastclawProgressRow key={item.id} item={item} />;
+            case "assistant":
+              return (
+                <SystemBubble key={item.id}>
+                  <DeployMarkdown>{item.content}</DeployMarkdown>
+                </SystemBubble>
+              );
+            default:
+              return null;
           }
-          if (msg.role === "user") {
-            return <UserBubble key={msg.id}>{msg.content}</UserBubble>;
-          }
-          // assistant：空内容 + streaming 时显示带 spinner 的等待提示，
-          // 不再用裸的「…」让人误以为卡死。
-          if (!msg.content) {
-            return (
-              <SystemBubble key={msg.id}>
-                <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                  正在分析论文与目标主机环境，正在生成部署计划…
-                </span>
-              </SystemBubble>
-            );
-          }
-          return (
-            <SystemBubble key={msg.id}>
-              <DeployMarkdown>{msg.content}</DeployMarkdown>
-            </SystemBubble>
-          );
         })}
+
+        {/* 流式但尚无任何工具/文本时，给一句带 spinner 的等待提示，避免空白。 */}
+        {deploy.phase === "streaming" &&
+          !deploy.items.some((it) => it.kind === "tool" || it.kind === "assistant") && (
+            <SystemBubble>
+              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                正在分析论文与目标主机环境，正在生成部署计划…
+              </span>
+            </SystemBubble>
+          )}
 
         {deploy.error && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
@@ -414,23 +423,48 @@ function DeployMarkdown({ children }: { children: string }) {
           li: (props) => <li className="leading-relaxed" {...props} />,
           strong: (props) => <strong className="font-semibold" {...props} />,
           a: ({ href, ...rest }) => (
-            <a href={href} target="_blank" rel="noreferrer" className="text-primary underline-offset-2 hover:underline" {...rest} />
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary underline-offset-2 hover:underline"
+              {...rest}
+            />
           ),
           blockquote: (props) => (
-            <blockquote className="border-l-2 border-border pl-3 text-muted-foreground" {...props} />
+            <blockquote
+              className="border-l-2 border-border pl-3 text-muted-foreground"
+              {...props}
+            />
           ),
           code: ({ className, children: codeChildren, ...rest }) => {
             const isBlock = /language-/.test(className ?? "");
             if (isBlock) {
-              return <code className={cn("block font-mono text-xs", className)} {...rest}>{codeChildren}</code>;
+              return (
+                <code className={cn("block font-mono text-xs", className)} {...rest}>
+                  {codeChildren}
+                </code>
+              );
             }
-            return <code className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[0.85em]" {...rest}>{codeChildren}</code>;
+            return (
+              <code
+                className="rounded bg-secondary/60 px-1 py-0.5 font-mono text-[0.85em]"
+                {...rest}
+              >
+                {codeChildren}
+              </code>
+            );
           },
           pre: (props) => (
-            <pre className="max-h-56 overflow-auto rounded-lg bg-secondary/60 p-2 text-xs leading-relaxed" {...props} />
+            <pre
+              className="max-h-56 overflow-auto rounded-lg bg-secondary/60 p-2 text-xs leading-relaxed"
+              {...props}
+            />
           ),
           table: (props) => (
-            <div className="overflow-x-auto"><table className="my-1 w-full border-collapse text-left text-xs" {...props} /></div>
+            <div className="overflow-x-auto">
+              <table className="my-1 w-full border-collapse text-left text-xs" {...props} />
+            </div>
           ),
           th: (props) => <th className="border border-border px-2 py-1 font-semibold" {...props} />,
           td: (props) => <td className="border border-border px-2 py-1 align-top" {...props} />,
@@ -625,11 +659,15 @@ function HostStatusCard({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">磁盘</span>
-            <span className="font-mono">{metrics.diskUsedPct != null ? `${metrics.diskUsedPct}%` : "—"}</span>
+            <span className="font-mono">
+              {metrics.diskUsedPct != null ? `${metrics.diskUsedPct}%` : "—"}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">SSH 延迟</span>
-            <span className="font-mono">{metrics.latencyMs != null ? `${metrics.latencyMs}ms` : "—"}</span>
+            <span className="font-mono">
+              {metrics.latencyMs != null ? `${metrics.latencyMs}ms` : "—"}
+            </span>
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">IP</span>
@@ -650,7 +688,8 @@ function HostStatusCard({
 function LiveMetricsCard({ deviceId }: { deviceId: string | undefined }) {
   const historyQuery = useQuery({
     queryKey: ["host-metrics-history", deviceId],
-    queryFn: () => (deviceId ? getHostMetricsHistory(deviceId, { limit: 10 }) : Promise.resolve({ items: [] })),
+    queryFn: () =>
+      deviceId ? getHostMetricsHistory(deviceId, { limit: 10 }) : Promise.resolve({ items: [] }),
     enabled: Boolean(deviceId),
     refetchInterval: 60_000,
   });
@@ -674,13 +713,18 @@ function LiveMetricsCard({ deviceId }: { deviceId: string | undefined }) {
               <span className="text-muted-foreground">
                 [{new Date(m.collectedAt).toLocaleTimeString()}]
               </span>{" "}
-              <span className={cn("font-semibold", m.online ? "text-[oklch(0.74_0.18_155)]" : "text-destructive")}>
+              <span
+                className={cn(
+                  "font-semibold",
+                  m.online ? "text-[oklch(0.74_0.18_155)]" : "text-destructive",
+                )}
+              >
                 {m.online ? "OK" : "FAIL"}
               </span>{" "}
               <span className="text-foreground">
                 {m.online
                   ? `GPU ${m.gpus?.[0]?.utilizationPct ?? 0}% | ${m.gpus?.[0]?.temperatureC ?? "?"}°C | CPU ${m.cpuLoad1m ?? "?"}% | Mem ${m.memoryUsedMb ?? "?"}/${m.memoryTotalMb ?? "?"} MB`
-                  : m.errorMessage?.slice(0, 80) ?? "连接失败"}
+                  : (m.errorMessage?.slice(0, 80) ?? "连接失败")}
               </span>
             </div>
           ))
@@ -757,5 +801,3 @@ function gpuUtilBars(util: number) {
   }
   return bars;
 }
-
-

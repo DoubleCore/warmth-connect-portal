@@ -53,11 +53,13 @@ export type FastClawChatResponseDto = {
   };
 };
 
-export type FastClawStreamEventDto = {
-  type: "delta" | "done" | "error";
-  content?: string;
-  error?: string;
-};
+export type FastClawStreamEventDto =
+  | { type: "delta"; content: string }
+  | { type: "tool_start"; toolName: string; displayName: string; arguments?: string }
+  | { type: "tool_result"; toolName: string; summary: string; result?: unknown }
+  | { type: "progress"; phase: string; iteration?: number; max?: number }
+  | { type: "done" }
+  | { type: "error"; error: string };
 
 // ---------- Deploy (论文部署助手) ----------
 
@@ -76,3 +78,17 @@ export const fastclawDeploySchema = z.object({
 });
 
 export type FastClawDeployInput = z.infer<typeof fastclawDeploySchema>;
+
+// ---------- Analyse (论文分析助手) ----------
+
+export const fastclawAnalyzeSchema = z.object({
+  /** 论文 ID */
+  paperId: z.string().min(1),
+  /**
+   * 可选：FastClaw 端会话标识。不传则后端按 paperId 派生稳定 key，
+   * 让同一篇论文的多次分析落在同一个会话窗口。
+   */
+  sessionKey: z.string().min(1).optional(),
+});
+
+export type FastClawAnalyzeInput = z.infer<typeof fastclawAnalyzeSchema>;
