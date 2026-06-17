@@ -61,11 +61,23 @@ export type FastClawChatOptions = {
  * SSE 流中每一帧解析后的结构。
  * 对齐 OpenAI streaming 格式：
  *   data: {"id":"...","choices":[{"delta":{"content":"..."},"finish_reason":null}]}
+ *
+ * `event` 是 Web Chat 事件流（webChatStream）独有的结构化工具事件载荷：
+ *   - OpenAI 兼容的 chatStream 永远不填 event，下游按纯 delta 处理（行为不变）。
+ *   - webChatStream 把 FastClaw 的 tool_call / tool_result / subagent_progress
+ *     原样保留成结构化字段，让路由层能映射成独立 SSE 事件、前端能渲染成工具卡片，
+ *     而不是早先那样拍扁成 `🔧 名字` 文本混进 content。
  */
+export type FastClawStreamEvent =
+  | { kind: "tool_call"; name: string; arguments?: string }
+  | { kind: "tool_result"; name: string; result?: unknown }
+  | { kind: "progress"; phase: string; iteration?: number; max?: number };
+
 export type FastClawStreamChunk = {
   id: string;
   content: string;
   finishReason: string | null;
+  event?: FastClawStreamEvent;
 };
 
 export type FastClawChatResult = {
@@ -554,10 +566,15 @@ function parseWebChatStreamFrame(
     return { items: [], sawContentDelta: false };
   }
 
-  const item = (content: string, finishReason: string | null = null): FastClawStreamChunk => ({
+  const item = (
+    content: string,
+    finishReason: string | null = null,
+    event?: FastClawStreamEvent,
+  ): FastClawStreamChunk => ({
     id: evt.data?.id ?? "",
     content,
     finishReason,
+    ...(event ? { event } : {}),
   });
 
   switch (evt.type) {
@@ -577,28 +594,33 @@ function parseWebChatStreamFrame(
       };
     }
     case "tool_call": {
+      // 结构化保留工具调用：content 留空，事件载荷交给路由层映射成 tool_start。
       const name = evt.data?.name || "tool";
-      const args = evt.data?.arguments ? `\n${evt.data.arguments}` : "";
-      return { items: [item(`\n\n🔧 ${name}${args}\n\n`)], sawContentDelta: false };
+      const event: FastClawStreamEvent = { kind: "tool_call", name };
+      if (evt.data?.arguments) event.arguments = evt.data.arguments;
+      return { items: [item("", null, event)], sawContentDelta: false };
     }
     case "tool_result": {
       const name = evt.data?.name || "tool";
-      const result = stringifyEventValue(evt.data?.result);
-      return { items: [item(`\n\n✅ ${name}\n${result}\n\n`)], sawContentDelta: false };
+      const event: FastClawStreamEvent = { kind: "tool_result", name };
+      if (evt.data?.result !== undefined) event.result = evt.data.result;
+      return { items: [item("", null, event)], sawContentDelta: false };
     }
     case "subagent_progress": {
       const phase = evt.data?.phase ?? "running";
-      const progress =
-        typeof evt.data?.iteration === "number" && typeof evt.data?.max === "number"
-          ? ` ${evt.data.iteration}/${evt.data.max}`
-          : "";
-      return { items: [item(`\n\n⏳ ${phase}${progress}\n\n`)], sawContentDelta: false };
+      const event: FastClawStreamEvent = { kind: "progress", phase };
+      if (typeof evt.data?.iteration === "number") event.iteration = evt.data.iteration;
+      if (typeof evt.data?.max === "number") event.max = evt.data.max;
+      return { items: [item("", null, event)], sawContentDelta: false };
     }
     case "steer": {
+      // 叙事性引导文本，作为内联 delta 保留（非致命、不结束流）。
       const message = evt.data?.message;
       return { items: message ? [item(`\n\n↪ ${message}\n\n`)] : [], sawContentDelta: false };
     }
     case "error": {
+      // 流内 error 事件：FastClaw 把它当作可继续的告警而非终止信号，
+      // 这里保留成内联文本 delta，真正的连接级失败由 readSseFrames 抛 FastClawError。
       const message = evt.data?.message ?? "FastClaw Web Chat stream error";
       return { items: [item(`\n\n⚠️ ${message}\n\n`)], sawContentDelta: false };
     }
@@ -610,7 +632,10 @@ function parseWebChatStreamFrame(
   }
 }
 
-function stringifyEventValue(value: unknown): string {
+/**
+ * 把工具结果等任意值转成可读字符串。供路由层为 tool_result 事件构造 summary 复用。
+ */
+export function stringifyEventValue(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   try {

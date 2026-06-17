@@ -1,38 +1,37 @@
 /**
  * useFastClawDeploy — Manager 页面的 FastClaw 部署对话 hook
  *
- * 比 useCommandStream 轻量得多：
- *   - 不走 Hermes Runs API，直接对接 FastClaw SSE
- *   - 不需要 approval/confirmation 流程
- *   - 支持追问（把历史 messages 带上）
+ * 在共享核心 useFastclawStream 之上包一层：
+ *   - 直接对接 FastClaw SSE（结构化事件 → transcript items），核心负责解析
+ *   - 不走 Hermes Runs API，不需要 approval/confirmation 流程
+ *   - 支持追问（把历史 user/assistant 文本带上）
  *
- * 状态机：idle → streaming → completed / error
+ * 状态机：idle → streaming → completed / error（由核心维护）
  *
  * 持久化：传入 `persistKey`（manager 里就是 reproductionId）后，
- * messages / sessionKey / history 会写到 localStorage。刷新后 hook 自动恢复，
+ * items / sessionKey / history 会写到 localStorage。刷新后 hook 自动恢复，
  * 避免重复触发部署初始化、保留之前的进度。详见下方 readStored / writeStored。
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getApiBaseUrl } from "@/lib/api-client";
+import {
+  useFastclawStream,
+  type FastclawTranscriptItem,
+  type FastclawStreamPhase,
+  type FastclawHistoryTurn,
+} from "@/hooks/use-fastclaw-stream";
 
-export type DeployMessage = {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  createdAt: number;
-};
-
-export type DeployPhase = "idle" | "streaming" | "completed" | "error";
+export type DeployPhase = FastclawStreamPhase;
 
 export type UseFastClawDeployReturn = {
   phase: DeployPhase;
-  messages: DeployMessage[];
+  items: FastclawTranscriptItem[];
   error: string | null;
   /**
    * `true` 表示 hook 已经完成 localStorage 恢复（或没有 persistKey 时直接为 true）。
    * Manager 页面的 auto-fire 必须等这个标志为 true 再判断要不要发起部署，
-   * 否则会在 restore 之前看到空 messages 误以为「全新会话」而重发指令。
+   * 否则会在 restore 之前看到空 items 误以为「全新会话」而重发指令。
    */
   restored: boolean;
   /** 发起部署（首次调用）或追问 */
@@ -55,18 +54,20 @@ export type UseFastClawDeployReturn = {
 
 let msgSeq = 0;
 function nextId(): string {
-  return `fc-${Date.now()}-${++msgSeq}`;
+  return `fc-deploy-${Date.now()}-${++msgSeq}`;
 }
 
 // ---------- 持久化 ----------
 
-const STORAGE_PREFIX = "hermes.fastclaw-deploy.v1.";
+// v2：transcript 从扁平 messages 升级为结构化 items（工具卡片不再是 emoji 文本）。
+// 旧的 v1 缓存不再恢复——部署对话是临时态，丢弃可接受。
+const STORAGE_PREFIX = "hermes.fastclaw-deploy.v2.";
 
 type StoredState = {
-  version: 1;
-  messages: DeployMessage[];
+  version: 2;
+  items: FastclawTranscriptItem[];
   sessionKey: string | null;
-  history: Array<{ role: "user" | "assistant"; content: string }>;
+  history: FastclawHistoryTurn[];
 };
 
 function storageKey(persistKey: string): string {
@@ -79,10 +80,10 @@ function readStored(persistKey: string): StoredState | null {
     const raw = window.localStorage.getItem(storageKey(persistKey));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StoredState>;
-    if (parsed.version !== 1) return null;
+    if (parsed.version !== 2) return null;
     return {
-      version: 1,
-      messages: Array.isArray(parsed.messages) ? parsed.messages : [],
+      version: 2,
+      items: Array.isArray(parsed.items) ? parsed.items : [],
       sessionKey: typeof parsed.sessionKey === "string" ? parsed.sessionKey : null,
       history: Array.isArray(parsed.history) ? parsed.history : [],
     };
@@ -104,19 +105,15 @@ function writeStored(persistKey: string, state: StoredState | null): void {
   }
 }
 
-export function useFastClawDeploy(opts?: {
-  persistKey?: string;
-}): UseFastClawDeployReturn {
+export function useFastClawDeploy(opts?: { persistKey?: string }): UseFastClawDeployReturn {
   const persistKey = opts?.persistKey;
 
-  const [phase, setPhase] = useState<DeployPhase>("idle");
-  const [messages, setMessages] = useState<DeployMessage[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const { phase, items, error, setItems, setPhase, setError, historyRef, start, reset } =
+    useFastclawStream();
+
   // 没有 persistKey 时不需要恢复，直接置 true。
   const [restored, setRestored] = useState<boolean>(!persistKey);
 
-  const abortRef = useRef<AbortController | null>(null);
-  const historyRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
   /**
    * FastClaw 端会话标识。和后端 chat/completions 的 X-Fastclaw-Session-Key
    * 一一对应——同一个 sessionKey 让 FastClaw 把所有请求归并到同一个会话窗口，
@@ -130,7 +127,6 @@ export function useFastClawDeploy(opts?: {
   // ---------- 恢复：persistKey 变化时从 localStorage 拉一次 ----------
   useEffect(() => {
     if (!persistKey) {
-      // 没 persistKey 就清空（key 从有切到无）。
       restoredKeyRef.current = null;
       setRestored(true);
       return;
@@ -138,19 +134,18 @@ export function useFastClawDeploy(opts?: {
     if (restoredKeyRef.current === persistKey) return;
 
     // 切 reproductionId 时先把当前流断掉，避免旧请求把新 key 的状态污染了。
-    abortRef.current?.abort();
-    abortRef.current = null;
+    reset();
 
     const stored = readStored(persistKey);
     if (stored) {
-      setMessages(stored.messages);
+      setItems(stored.items);
       sessionKeyRef.current = stored.sessionKey;
       historyRef.current = stored.history;
       // 刷新前可能正在 streaming——恢复时统一降级成 completed，
       // 防止 UI 假装还在请求但实际并没有 fetch。
-      setPhase(stored.messages.length > 0 ? "completed" : "idle");
+      setPhase(stored.items.length > 0 ? "completed" : "idle");
     } else {
-      setMessages([]);
+      setItems([]);
       sessionKeyRef.current = null;
       historyRef.current = [];
       setPhase("idle");
@@ -158,191 +153,71 @@ export function useFastClawDeploy(opts?: {
     setError(null);
     restoredKeyRef.current = persistKey;
     setRestored(true);
+    // reset / set* 都是稳定引用；只需在 persistKey 变化时跑。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [persistKey]);
 
-  // ---------- 持久化：messages / phase 变化时回写 ----------
+  // ---------- 持久化：items / phase 变化时回写 ----------
   useEffect(() => {
     if (!persistKey) return;
     if (!restored) return;
     if (restoredKeyRef.current !== persistKey) return; // restore 还没追上 key 变化
 
-    if (messages.length === 0) {
+    if (items.length === 0) {
       writeStored(persistKey, null);
       return;
     }
 
     writeStored(persistKey, {
-      version: 1,
-      messages,
+      version: 2,
+      items,
       sessionKey: sessionKeyRef.current,
       history: historyRef.current,
     });
-    // phase 也作为依赖：streaming 完成时 historyRef 会被 push，但 messages 不变；
+    // phase 也作为依赖：streaming 完成时 historyRef 会被 push，但 items 不变；
     // 必须借 phase 切换那一帧把最终的 history 写回去。
-  }, [persistKey, restored, messages, phase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persistKey, items, phase]);
 
-  const reset = useCallback(() => {
-    abortRef.current?.abort();
-    abortRef.current = null;
-    setPhase("idle");
-    setMessages([]);
-    setError(null);
-    historyRef.current = [];
+  const resetAll = useCallback(() => {
+    reset();
     sessionKeyRef.current = null;
     if (persistKey) {
       writeStored(persistKey, null);
     }
-  }, [persistKey]);
-
-  /**
-   * 通用 SSE 消费：POST 到指定 URL，读取 delta/done/error 事件
-   */
-  const consumeStream = useCallback(
-    async (url: string, body: Record<string, unknown>, userMsg?: string) => {
-      // 如果有用户消息，先加到 transcript
-      if (userMsg) {
-        const userBubble: DeployMessage = {
-          id: nextId(),
-          role: "user",
-          content: userMsg,
-          createdAt: Date.now(),
-        };
-        setMessages((prev) => [...prev, userBubble]);
-        historyRef.current.push({ role: "user", content: userMsg });
-      }
-
-      setPhase("streaming");
-      setError(null);
-
-      const assistantId = nextId();
-      // 先加一个空的 assistant bubble，后续 append content
-      setMessages((prev) => [
-        ...prev,
-        { id: assistantId, role: "assistant", content: "", createdAt: Date.now() },
-      ]);
-
-      const controller = new AbortController();
-      abortRef.current = controller;
-
-      try {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-
-        if (!res.ok || !res.body) {
-          const text = await res.text().catch(() => "");
-          throw new Error(`HTTP ${res.status}: ${text.slice(0, 200)}`);
-        }
-
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let fullContent = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() ?? "";
-
-          for (const line of lines) {
-            if (line.startsWith("event: ")) {
-              const eventType = line.slice(7).trim();
-              if (eventType === "done") {
-                setPhase("completed");
-                historyRef.current.push({ role: "assistant", content: fullContent });
-                return;
-              }
-              if (eventType === "error") {
-                // next data line will have the error
-                continue;
-              }
-            }
-            if (line.startsWith("data: ")) {
-              const dataStr = line.slice(6);
-              try {
-                const data = JSON.parse(dataStr) as { content?: string; error?: string };
-                if (data.error) {
-                  setError(data.error);
-                  setPhase("error");
-                  return;
-                }
-                if (data.content) {
-                  fullContent += data.content;
-                  setMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId ? { ...m, content: fullContent } : m,
-                    ),
-                  );
-                }
-              } catch {
-                // skip unparseable lines
-              }
-            }
-          }
-        }
-
-        // Stream ended without explicit done event
-        if (fullContent) {
-          historyRef.current.push({ role: "assistant", content: fullContent });
-        }
-        setPhase("completed");
-      } catch (err) {
-        if ((err as Error).name === "AbortError") return;
-        const msg = err instanceof Error ? err.message : "Unknown error";
-        setError(msg);
-        setPhase("error");
-      }
-    },
-    [],
-  );
+  }, [persistKey, reset]);
 
   /**
    * 自动触发部署 — 调用 /api/fastclaw/deploy/stream
    */
   const startDeploy = useCallback(
-    (
-      params: { reproductionId: string; paperId: string; deviceId: string },
-      preview?: string,
-    ) => {
+    (params: { reproductionId: string; paperId: string; deviceId: string }, preview?: string) => {
       const url = `${getApiBaseUrl()}/api/fastclaw/deploy/stream`;
       // 按 reproductionId 派生稳定 sessionKey：同一条复现记录里多次部署 / 追问
       // 走同一个 FastClaw 会话窗口；reset() 才会清掉。
-      const sessionKey =
-        sessionKeyRef.current ?? `wcp-deploy-${params.reproductionId}`;
+      const sessionKey = sessionKeyRef.current ?? `wcp-deploy-${params.reproductionId}`;
       sessionKeyRef.current = sessionKey;
 
       // 首屏给用户看的"我在做什么"——一个 system 通告 + 可选的 user 摘要气泡，
       // 让他们立刻知道部署初始化指令已经发出去了，不会盯着空白等。
-      const initialMessages: DeployMessage[] = [
+      const initial: FastclawTranscriptItem[] = [
         {
           id: nextId(),
-          role: "system",
+          kind: "system",
           content: "\u{1F680} 部署任务已启动，正在连接 FastClaw 论文部署助手…",
           createdAt: Date.now(),
         },
       ];
       if (preview) {
-        const userBubble: DeployMessage = {
-          id: nextId(),
-          role: "user",
-          content: preview,
-          createdAt: Date.now(),
-        };
-        initialMessages.push(userBubble);
+        initial.push({ id: nextId(), kind: "user", content: preview, createdAt: Date.now() });
         // 历史里也补一条 user，让后续追问保持上下文连贯。
         historyRef.current.push({ role: "user", content: preview });
       }
-      setMessages(initialMessages);
+      setItems(initial);
 
-      void consumeStream(url, { ...params, sessionKey });
+      void start(url, { ...params, sessionKey });
     },
-    [consumeStream],
+    [historyRef, setItems, start],
   );
 
   /**
@@ -357,9 +232,7 @@ export function useFastClawDeploy(opts?: {
       // 复用部署阶段的 sessionKey；如果还没初始化（用户直接打字），
       // 临时生成一个会话标识，至少保证之后几轮聊天落在同一个窗口里。
       if (!sessionKeyRef.current) {
-        sessionKeyRef.current = `wcp-chat-${Date.now()}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}`;
+        sessionKeyRef.current = `wcp-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       }
       const body: Record<string, unknown> = {
         message,
@@ -370,10 +243,18 @@ export function useFastClawDeploy(opts?: {
         agentRole: "deploy",
       };
       if (options?.systemPrompt) body.systemPrompt = options.systemPrompt;
-      void consumeStream(url, body, message);
+      void start(url, body, { userMsg: message });
     },
-    [consumeStream],
+    [historyRef, start],
   );
 
-  return { phase, messages, error, restored, send, startDeploy, reset };
+  return {
+    phase,
+    items,
+    error,
+    restored,
+    send,
+    startDeploy,
+    reset: resetAll,
+  };
 }

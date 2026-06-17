@@ -4,17 +4,19 @@ import { createRouter } from "@/shared/context.js";
 import { ok } from "@/shared/response.js";
 import { zv } from "@/shared/validator.js";
 import { baseLogger } from "@/shared/logger.js";
-import { fastclawChatSchema, fastclawDeploySchema } from "./fastclaw.dto.js";
-import type { FastClawStreamChunk } from "./fastclaw.client.js";
+import { fastclawChatSchema, fastclawDeploySchema, fastclawAnalyzeSchema } from "./fastclaw.dto.js";
+import { stringifyEventValue, type FastClawStreamChunk } from "./fastclaw.client.js";
 import * as service from "./fastclaw.service.js";
 
 /**
  * 挂在 /api/fastclaw 上。
  *
  * 路由：
- *   POST /api/fastclaw/chat          非流式对话（返回完整 JSON）
- *   POST /api/fastclaw/chat/stream   流式对话（SSE）
- *   GET  /api/fastclaw/ping          FastClaw 健康检查
+ *   POST /api/fastclaw/chat           非流式对话（返回完整 JSON）
+ *   POST /api/fastclaw/chat/stream    流式对话（SSE）
+ *   POST /api/fastclaw/deploy/stream  论文部署助手（SSE）
+ *   POST /api/fastclaw/analyze/stream 论文分析助手（SSE）
+ *   GET  /api/fastclaw/ping           FastClaw 健康检查
  */
 export const fastclawRouter = createRouter();
 
@@ -32,6 +34,13 @@ async function closeSseStream(stream: SSEStreamingApi, state: StreamState): Prom
   }
 }
 
+/**
+ * 把 FastClaw chunk 流映射成多种结构化 SSE 事件推给前端。
+ *
+ * - chunk.event 存在（仅 webChatStream 会带）→ 映射成 tool_start / tool_result / progress，
+ *   事件名对齐 Hermes 指令中心，前端可直接渲染成工具状态卡片。
+ * - 否则按纯文本 delta 处理（OpenAI 兼容 chatStream 走这条，行为不变）。
+ */
 async function pipeFastClawChunksToSse(
   stream: SSEStreamingApi,
   chunks: AsyncIterable<FastClawStreamChunk>,
@@ -41,8 +50,43 @@ async function pipeFastClawChunksToSse(
     if (state.ended) break;
 
     // [DONE] 标记
-    if (chunk.finishReason === "stop" && chunk.content === "") {
+    if (chunk.finishReason === "stop" && chunk.content === "" && !chunk.event) {
       break;
+    }
+
+    if (chunk.event) {
+      switch (chunk.event.kind) {
+        case "tool_call":
+          await stream.writeSSE({
+            event: "tool_start",
+            data: JSON.stringify({
+              toolName: chunk.event.name,
+              displayName: chunk.event.name,
+              ...(chunk.event.arguments ? { arguments: chunk.event.arguments } : {}),
+            }),
+          });
+          break;
+        case "tool_result":
+          await stream.writeSSE({
+            event: "tool_result",
+            data: JSON.stringify({
+              toolName: chunk.event.name,
+              summary: stringifyEventValue(chunk.event.result).slice(0, 500),
+              result: chunk.event.result,
+            }),
+          });
+          break;
+        case "progress":
+          await stream.writeSSE({
+            event: "progress",
+            data: JSON.stringify({
+              phase: chunk.event.phase,
+              iteration: chunk.event.iteration,
+              max: chunk.event.max,
+            }),
+          });
+          break;
+      }
     }
 
     if (chunk.content) {
@@ -152,6 +196,43 @@ fastclawRouter.post("/deploy/stream", zv("json", fastclawDeploySchema), async (c
         event: "error",
         data: JSON.stringify({
           error: err instanceof Error ? err.message : "Deploy error",
+        }),
+      });
+    } finally {
+      detachAbortHandler();
+      await closeSseStream(stream, state);
+    }
+  });
+});
+
+// ---------- 论文分析 (SSE) ----------
+
+fastclawRouter.post("/analyze/stream", zv("json", fastclawAnalyzeSchema), async (c) => {
+  const body = c.req.valid("json");
+  const logger = (c.get("logger") ?? baseLogger).child({ route: "fastclaw-analyze" });
+
+  service.ensureConfigured();
+
+  return streamSSE(c, async (stream) => {
+    const abortSignal = c.req.raw.signal;
+    const state: StreamState = { ended: false };
+    const detachAbortHandler = attachClientAbortHandler(abortSignal, stream, state, logger);
+
+    try {
+      // 先推一条状态，让用户知道请求已接收；后续内容来自 FastClaw 分析 agent。
+      await stream.writeSSE({
+        event: "delta",
+        data: JSON.stringify({ content: "🔍 正在连接 FastClaw 论文分析助手…\n\n" }),
+      });
+
+      const chunks = await service.analyzeChatStream(body, logger);
+      await pipeFastClawChunksToSse(stream, chunks, state);
+    } catch (err) {
+      logger.error({ err }, "FastClaw analyze error");
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({
+          error: err instanceof Error ? err.message : "Analyze error",
         }),
       });
     } finally {

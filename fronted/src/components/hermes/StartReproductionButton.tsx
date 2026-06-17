@@ -130,11 +130,7 @@ export function StartReproductionButton({ paperId, paperTitle }: Props) {
           >
             {t("paper.cancel")}
           </Button>
-          <Button
-            type="button"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending}
-          >
+          <Button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
             {mutation.isPending ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />

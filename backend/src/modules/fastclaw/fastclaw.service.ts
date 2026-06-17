@@ -14,6 +14,7 @@ import type {
   FastClawChatInput,
   FastClawChatResponseDto,
   FastClawDeployInput,
+  FastClawAnalyzeInput,
 } from "./fastclaw.dto.js";
 
 /**
@@ -231,5 +232,74 @@ export async function deployChatStream(
   return fastclawClient.webChatStream(message, logger, {
     agentId: env.FASTCLAW_AGENT_DEPLOY,
     sessionKey: input.sessionKey ?? `wcp-deploy-${input.reproductionId}`,
+  });
+}
+
+// ---------- Analyse：论文分析助手 ----------
+
+/**
+ * 构造论文分析指令。把标题 + 作者 + 摘要拼成一条让 analyse agent 做结构化解读的消息。
+ *
+ * 注意：analyse 走 webChatStream（同 deploy），单 message 字符串、无 system 通道，
+ * 所以分析要求必须并进 message 正文。
+ */
+function buildAnalyzeMessage(paper: {
+  title: string;
+  authorsJson: string;
+  abstract: string | null;
+}): string {
+  let authors = "未知";
+  try {
+    const parsed = JSON.parse(paper.authorsJson);
+    if (Array.isArray(parsed) && parsed.length > 0) authors = parsed.join(", ");
+  } catch {
+    // malformed authorsJson — use fallback
+  }
+
+  const abstractSection = paper.abstract?.trim()
+    ? `\n\n## 摘要\n${paper.abstract.trim()}`
+    : "\n\n## 摘要\n（未提供摘要，请基于标题与你掌握的资料分析，并说明信息有限。）";
+
+  return `你是一个论文分析助手。请阅读下面这篇论文并给出结构化解读。
+
+## 论文信息
+- 标题：${paper.title}
+- 作者：${authors}${abstractSection}
+
+## 分析要求
+请依次输出以下部分（用 Markdown 小标题分隔）：
+1. 任务定义：论文要解决的核心问题
+2. 研究问题：拆解出的关键研究问题
+3. 方法概述：核心方法 / 模型 / 思路
+4. 评估指标与结果：用了哪些指标、主要结果
+5. 结论与启示
+6. 阅读笔记：值得注意的细节或局限
+
+如需查阅资料可调用工具；每一步分析尽量简洁、抓重点。`;
+}
+
+/**
+ * 发起论文分析对话（FastClaw Web Chat 事件流）。
+ *
+ * 与 deploy 同构：走 /api/chat/stream 而非 OpenAI 兼容接口，这样工具调用过程
+ * （tool_call / tool_result / subagent_progress）能稳定暴露给前端做实时可视化。
+ */
+export async function analyzeChatStream(
+  input: FastClawAnalyzeInput,
+  logger: Logger,
+): Promise<AsyncIterable<FastClawStreamChunk>> {
+  ensureConfigured();
+
+  const paper = await paperRepo.getPaperById(input.paperId);
+  if (!paper) throw new NotFoundError("Paper", input.paperId);
+
+  const message = buildAnalyzeMessage(paper);
+
+  logger.info({ paperId: input.paperId }, "FastClaw analyze chat initiated (web stream)");
+
+  // 按 paperId 派生稳定 sessionKey，让同一篇论文的多次分析归并到同一会话窗口。
+  return fastclawClient.webChatStream(message, logger, {
+    agentId: env.FASTCLAW_AGENT_PAPER_ANALYSE,
+    sessionKey: input.sessionKey ?? `wcp-analyse-${input.paperId}`,
   });
 }
