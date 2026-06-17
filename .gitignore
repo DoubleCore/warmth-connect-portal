@@ -60,3 +60,5 @@ fastclaw/agents/*/agent/memory/logs/
 fastclaw/workspaces/
 fastclaw/runtime-data/
 fastclaw/dist/
+# Official FastClaw binary download (44MB, fetched per-machine, not source)
+fastclaw/.upgrade/
