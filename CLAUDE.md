@@ -49,7 +49,9 @@ warmth-connect-portal/
   - `agt_18b2eb56cb44f511848e` paperanalyse RAG 论文阅读助手
   - `agt_44d05b7677054cebfdad` deploy 论文部署助手
   - 三者当前都用 `anthropic/claude-opus-4-7`（via packyapi 代理，key 已配置）
-- **启动**：`cd fastclaw && FASTCLAW_HOME="C:/Users/AORUS/.fastclaw" ./.upgrade/fastclaw.exe gateway --port 18953`
+- **启动**：`cd fastclaw && FASTCLAW_HOME="C:/Users/AORUS/.fastclaw" FASTCLAW_ALLOW_HOST_EXEC=true ./.upgrade/fastclaw.exe gateway --port 18953`
+  - **`FASTCLAW_ALLOW_HOST_EXEC=true` 必带**：本机没装 Docker Desktop，默认 docker 沙箱后端起不来，会导致 agent 的 `exec`（curl/python/ssh）全部失败、卡在"docker 不在 PATH"。该变量开启 `host_exec` 逃生口，让 agent 直接在 Windows 宿主执行命令（官方设计的回退路径，沙箱不可用时提示 "retry with the host_exec tool instead"）。裸启动（不带此变量）会踩回 docker 沙箱的坑。
+  - 其他可选沙箱开关：`FASTCLAW_SANDBOX_ENABLED=false`（彻底关沙箱）、`FASTCLAW_SANDBOX_BACKEND=docker|e2b|boxlite`（切后端）。`FASTCLAW_DEPLOY=hosted` 会强制禁用 host_exec（本地部署不受影响）。
 - **管理**：`fastclaw.exe agents ls` / `agents config <name> get|set` / `apikey list|rotate`；Web Dashboard 在 http://localhost:18953（admin 登录）
 
 ## 开发命令
@@ -88,7 +90,8 @@ npm run ssh:test     # 测试所有 SSH 连接
 
 ```bash
 # 官方 v0.45.0 单一二进制，FASTCLAW_HOME 必须指向已配置 3 个 agent 的数据目录
-FASTCLAW_HOME="C:/Users/AORUS/.fastclaw" ./.upgrade/fastclaw.exe gateway --port 18953
+# FASTCLAW_ALLOW_HOST_EXEC=true 必带：本机无 Docker，开启 host_exec 宿主执行逃生口（否则 exec 全失败）
+FASTCLAW_HOME="C:/Users/AORUS/.fastclaw" FASTCLAW_ALLOW_HOST_EXEC=true ./.upgrade/fastclaw.exe gateway --port 18953
 ./.upgrade/fastclaw.exe agents ls                          # 列出 agent + ID
 ./.upgrade/fastclaw.exe apikey list                        # 列出 API key
 # 旧的 `start-hermes-fastclaw.bat` / `go run ./cmd/hermes-fastclaw` 已弃用
