@@ -46,13 +46,26 @@ const envSchema = z.object({
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
   // 任意 OpenAI 兼容的服务都行（OpenAI / DeepSeek / 本地 ollama / DashScope 兼容模式）。
-  // 三个 *_MODEL 和 *_BASE_URL / *_API_KEY 都留空 → 整个 RAG LLM 链路被禁用，
-  // POST /api/rag/query 会 503，但 GET /api/rag/search（FTS5 关键词）照常工作。
+  // *_API_KEY 留空 → 整个 RAG LLM 链路被禁用，POST /api/rag/query 会 503，
+  // 但 GET /api/rag/search（FTS5 关键词）照常工作。
+  //
+  // DeepSeek 注意：其 OpenAI 兼容面只有 /chat/completions，没有 /embeddings。
+  // 用 DeepSeek 时把 LLM_EMBEDDINGS_ENABLED 设为 false，问答走 FTS5 召回 + LLM 生成。
   LLM_API_BASE_URL: z.string().url().default("https://api.openai.com/v1"),
   LLM_API_KEY: optionalString(),
   LLM_CHAT_MODEL: z.string().min(1).default("gpt-4o-mini"),
   LLM_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
   LLM_TIMEOUT_MS: z.coerce.number().int().positive().default(60_000),
+  /**
+   * 该 LLM 后端是否提供 /embeddings 接口。
+   * OpenAI / DashScope 兼容模式有 → 留 true。
+   * DeepSeek 只有 /chat/completions（无 embeddings）→ 设为 false，
+   * RAG 会直接跳过 embedding 生成与语义重排，只靠 FTS5 关键词召回，
+   * 避免每次录入/查询都打一个必然失败的 /embeddings 请求。
+   */
+  LLM_EMBEDDINGS_ENABLED: z
+    .preprocess((v) => (typeof v === "string" ? v.toLowerCase() !== "false" : v), z.boolean())
+    .default(true),
 
   // ---------- Host Tracking ----------
   // 主机 SSH 凭证加密密钥：32 字节 hex（64 字符）。生成方式：
