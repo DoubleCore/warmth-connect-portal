@@ -1,6 +1,6 @@
 import { ApiError, apiFetch, apiUrl } from "@/lib/api-client";
 import type { Paginated } from "@/types/api";
-import type { PaperDetail, PaperListItem, PaperListQuery } from "@/types/paper";
+import type { PaperAnalysis, PaperDetail, PaperListItem, PaperListQuery } from "@/types/paper";
 
 export async function listPapers(query: PaperListQuery = {}): Promise<Paginated<PaperListItem>> {
   return apiFetch<Paginated<PaperListItem>>("/api/papers", { query });
@@ -8,6 +8,18 @@ export async function listPapers(query: PaperListQuery = {}): Promise<Paginated<
 
 export async function getPaperDetail(paperId: string): Promise<PaperDetail> {
   return apiFetch<PaperDetail>(`/api/papers/${encodeURIComponent(paperId)}/detail`);
+}
+
+/**
+ * 触发 FastClaw paperanalyse agent 生成结构化分析卡（写入 paper_analysis 表）。
+ * 对应后端 POST /api/papers/:id/analyze。耗时较长（agent 推理），调用方应显示 loading。
+ */
+export async function analyzePaper(paperId: string): Promise<PaperAnalysis> {
+  const res = await apiFetch<{ analysis: PaperAnalysis }>(
+    `/api/papers/${encodeURIComponent(paperId)}/analyze`,
+    { method: "POST" },
+  );
+  return res.analysis;
 }
 
 /** Partially update a paper's metadata. */

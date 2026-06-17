@@ -56,6 +56,19 @@ papersRouter.patch("/:paperId/analysis", zv("json", upsertAnalysisSchema), async
 });
 
 /**
+ * POST /api/papers/:paperId/analyze
+ *
+ * 调 FastClaw paperanalyse agent 自动生成结构化分析卡并落库。
+ * 与 PATCH /analysis（手动写入）区分：这条是 AI 生成。
+ */
+papersRouter.post("/:paperId/analyze", async (c) => {
+  const paperId = c.req.param("paperId");
+  const logger = c.get("logger");
+  const analysis = await service.analyzePaper(paperId, logger);
+  return ok(c, { analysis });
+});
+
+/**
  * POST /api/papers/:paperId/pdf
  *
  * Multipart upload. The PDF part must be named "file". On success we store

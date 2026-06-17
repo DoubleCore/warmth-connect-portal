@@ -1,5 +1,5 @@
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useSuspenseQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronRight,
   ChevronDown,
@@ -15,13 +15,14 @@ import {
   StickyNote,
   MessageSquare,
   Github,
+  Loader2,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { PdfUploadButton } from "@/components/hermes/PdfUploadButton";
 import { StartReproductionButton } from "@/components/hermes/StartReproductionButton";
 import { cn } from "@/lib/utils";
 import { ApiError } from "@/lib/api-client";
-import { getPaperDetail, getPaperPdfUrl } from "@/api/papers";
+import { analyzePaper, getPaperDetail, getPaperPdfUrl } from "@/api/papers";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import type { PaperAnalysis, PaperDetail } from "@/types/paper";
 import type { MessageKey } from "@/lib/i18n/messages";
@@ -77,9 +78,20 @@ function ErrorView({ message }: { message: string }) {
 function PaperDetailPage() {
   const { paperId } = Route.useParams();
   const { t } = useI18n();
+  const queryClient = useQueryClient();
   const { data } = useSuspenseQuery(detailQuery(paperId));
 
   const { paper, analysis } = data as PaperDetail;
+
+  const analyzeMutation = useMutation({
+    mutationFn: () => analyzePaper(paperId),
+    onSuccess: (next) => {
+      // 把新分析写回缓存，避免再 round-trip 一次 detail。
+      queryClient.setQueryData(["paper-detail", paperId], (prev) =>
+        prev ? { ...(prev as PaperDetail), analysis: next } : prev,
+      );
+    },
+  });
 
   return (
     <Shell active="Library">
@@ -192,19 +204,52 @@ function PaperDetailPage() {
               </h2>
               <p className="text-xs text-muted-foreground">{t("paper.analysis.subheading")}</p>
             </div>
-            <Link
-              to="/search"
-              search={{ q: paper.title }}
-              className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-primary-foreground"
-              style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
-            >
-              <MessageSquare className="h-3.5 w-3.5" aria-hidden />
-              {t("paper.analysis.startRagChat")}
-            </Link>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => analyzeMutation.mutate()}
+                disabled={analyzeMutation.isPending}
+                className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-xs font-semibold text-foreground transition-colors hover:bg-secondary disabled:opacity-50"
+              >
+                {analyzeMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                )}
+                {analyzeMutation.isPending
+                  ? t("paper.analysis.analyzing")
+                  : analysis
+                    ? t("paper.analysis.regenerate")
+                    : t("paper.analysis.generate")}
+              </button>
+              <Link
+                to="/search"
+                search={{ q: paper.title }}
+                className="inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-primary-foreground"
+                style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-glow)" }}
+              >
+                <MessageSquare className="h-3.5 w-3.5" aria-hidden />
+                {t("paper.analysis.startRagChat")}
+              </Link>
+            </div>
           </div>
 
+          {analyzeMutation.isError && (
+            <div className="mt-4 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
+              {analyzeMutation.error instanceof Error
+                ? analyzeMutation.error.message
+                : t("paper.analysis.error")}
+            </div>
+          )}
+
           <div className="mt-6 space-y-4">
-            {analysis ? <AnalysisSections analysis={analysis} /> : <EmptyAnalysis />}
+            {analysis ? (
+              <AnalysisSections analysis={analysis} />
+            ) : analyzeMutation.isPending ? (
+              <AnalyzingPlaceholder />
+            ) : (
+              <EmptyAnalysis />
+            )}
           </div>
         </aside>
       </div>
@@ -299,6 +344,18 @@ function EmptyAnalysis() {
   return (
     <div className="rounded-2xl border border-dashed border-border bg-card/40 p-6 text-center text-sm text-muted-foreground">
       {t("paper.analysis.empty")}
+    </div>
+  );
+}
+
+function AnalyzingPlaceholder() {
+  const { t } = useI18n();
+  return (
+    <div className="rounded-2xl border border-border bg-card/40 p-6 text-center text-sm text-muted-foreground">
+      <span className="inline-flex items-center gap-2">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        {t("paper.analysis.analyzing")}
+      </span>
     </div>
   );
 }
