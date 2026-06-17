@@ -39,12 +39,18 @@ warmth-connect-portal/
 
 ### FastClaw Agent 运行时（fastclaw/）
 
-- **语言**：Go
-- **架构**：三层（agentcore 接口 → agentruntime 引擎 → connector 平台适配）
-- **协议**：OpenAI 兼容 `/v1/chat/completions`（支持流式 SSE）
+- **运行时**：官方 FastClaw v0.45.0 单一二进制（`fastclaw/.upgrade/fastclaw.exe`）
+  - 旧的 Go 源码 fork（`cmd/hermes-fastclaw` + agentcore/agentruntime/connector）已弃用，**不要再用 `go run` 启动**
+- **协议**：OpenAI 兼容 `/v1/chat/completions` + Web Chat `/api/chat/stream`（SSE）
 - **端口**：默认 `:18953`
-- **三个 Agent**：论文搜索助手 / RAG 论文阅读助手 / 论文部署助手
-- **启动**：`fastclaw\start-hermes-fastclaw.bat`（Windows）
+- **数据目录（FASTCLAW_HOME）**：`C:/Users/AORUS/.fastclaw`（SQLite + agents + skills 都在这里）
+- **三个 Agent**（ID 与 backend `.env` 一一对应）：
+  - `agt_f908ad32af3120090a37` researcher 论文搜索助手
+  - `agt_18b2eb56cb44f511848e` paperanalyse RAG 论文阅读助手
+  - `agt_44d05b7677054cebfdad` deploy 论文部署助手
+  - 三者当前都用 `anthropic/claude-opus-4-7`（via packyapi 代理，key 已配置）
+- **启动**：`cd fastclaw && FASTCLAW_HOME="C:/Users/AORUS/.fastclaw" ./.upgrade/fastclaw.exe gateway --port 18953`
+- **管理**：`fastclaw.exe agents ls` / `agents config <name> get|set` / `apikey list|rotate`；Web Dashboard 在 http://localhost:18953（admin 登录）
 
 ## 开发命令
 
@@ -81,7 +87,11 @@ npm run ssh:test     # 测试所有 SSH 连接
 ### FastClaw Agent 运行时（在 fastclaw/ 目录下）
 
 ```bash
-start-hermes-fastclaw.bat   # Windows 启动三个 Agent（端口 :18953）
+# 官方 v0.45.0 单一二进制，FASTCLAW_HOME 必须指向已配置 3 个 agent 的数据目录
+FASTCLAW_HOME="C:/Users/AORUS/.fastclaw" ./.upgrade/fastclaw.exe gateway --port 18953
+./.upgrade/fastclaw.exe agents ls                          # 列出 agent + ID
+./.upgrade/fastclaw.exe apikey list                        # 列出 API key
+# 旧的 `start-hermes-fastclaw.bat` / `go run ./cmd/hermes-fastclaw` 已弃用
 ```
 
 ### Hermes 联调脚本（在根目录 scripts/ 下）
