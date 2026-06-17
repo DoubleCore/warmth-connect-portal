@@ -198,17 +198,38 @@ ${paper.abstract ?? "（无摘要）"}`;
 
   logger.info({ paperId, agentId }, "Calling paperanalyse agent for paper analysis");
 
-  const result = await fastclawClient.chat(
-    [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-    logger,
-    { agentId, temperature: 0.2, sessionKey: `paper-analyze-${paperId}` },
-  );
+  // Agent / 上游代理偶发抖动（返回 "Sorry, I encountered an error..." 或
+  // 不可解析的内容），单次失败不应直接抛给用户。重试至多 3 次。
+  const MAX_ATTEMPTS = 3;
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const result = await fastclawClient.chat(
+        [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        logger,
+        { agentId, temperature: 0.2, sessionKey: `paper-analyze-${paperId}-${attempt}` },
+      );
 
-  const parsed = coerceAnalysis(extractAnalysisJson(result.content));
-  const row = await repo.upsertAnalysis(paperId, parsed);
-  logger.info({ paperId }, "Paper analysis generated and saved");
-  return toAnalysisDto(row);
+      const parsed = coerceAnalysis(extractAnalysisJson(result.content));
+      const row = await repo.upsertAnalysis(paperId, parsed);
+      logger.info({ paperId, attempt }, "Paper analysis generated and saved");
+      return toAnalysisDto(row);
+    } catch (err) {
+      lastErr = err;
+      logger.warn({ paperId, attempt, err }, "Paper analysis attempt failed");
+      // 解析失败 / agent 抖动可重试；其它（如配置错误）应已在前面抛出。
+      if (attempt < MAX_ATTEMPTS) continue;
+    }
+  }
+
+  if (lastErr instanceof AppError) throw lastErr;
+  throw new AppError(
+    "AI 分析多次尝试后仍失败，请稍后重试。",
+    502,
+    "ANALYSIS_FAILED",
+    { cause: lastErr instanceof Error ? lastErr.message : String(lastErr) },
+  );
 }
