@@ -200,7 +200,34 @@ interface ProbeContext {
   reason: "scheduled" | "manual";
 }
 
+/**
+ * 单 deviceId 的进程内互斥。scheduler tick 与手动 POST /probe 可能同时命中同一台主机，
+ * 否则会：开两条 SSH、插两行快照、且 consecutiveFailures 被并发读改写丢增量、
+ * backoffUntil 被旧值覆盖。这里让同一 deviceId 的 probe 串行执行。
+ */
+const inflightProbes = new Map<string, Promise<HostMetricsDto>>();
+
 export async function probeHost(
+  cred: HostCredentialRow,
+  context: ProbeContext,
+): Promise<HostMetricsDto> {
+  const existing = inflightProbes.get(cred.deviceId);
+  if (existing) {
+    logger.debug(
+      { deviceId: cred.deviceId, reason: context.reason },
+      "host-tracking probe: coalescing with in-flight probe for same device",
+    );
+    return existing;
+  }
+
+  const run = probeHostInner(cred, context).finally(() => {
+    inflightProbes.delete(cred.deviceId);
+  });
+  inflightProbes.set(cred.deviceId, run);
+  return run;
+}
+
+async function probeHostInner(
   cred: HostCredentialRow,
   context: ProbeContext,
 ): Promise<HostMetricsDto> {
@@ -270,11 +297,19 @@ async function persistFailure(
     errorMessage,
   } satisfies NewHostMetricsSnapshotRow);
 
-  const nextFailures = cred.consecutiveFailures + 1;
+  // 基于「重新读取的当前行」而非进入时的 cred 快照来增计数。
+  // cred 可能是 listDueHostsForTick / probeHostById 在更早时刻读出的，期间
+  // 别的 probe 可能已经改过 consecutiveFailures（互斥只保证同一时刻不并发，
+  // 但进入前读到的快照仍可能过期）。
+  const current = await repo.getHostCredentialById(cred.deviceId);
+  const baseFailures = current?.consecutiveFailures ?? cred.consecutiveFailures;
+  const currentBackoff = current?.backoffUntil ?? cred.backoffUntil;
+
+  const nextFailures = baseFailures + 1;
   const backoffUntil =
     nextFailures >= env.HOST_TRACKING_BACKOFF_THRESHOLD
       ? new Date(Date.now() + env.HOST_TRACKING_BACKOFF_MS).toISOString()
-      : cred.backoffUntil;
+      : currentBackoff;
 
   await repo.updateHostCredential(cred.deviceId, {
     consecutiveFailures: nextFailures,

@@ -31,6 +31,20 @@ function toErrorPayload(
   return { success: false, error };
 }
 
+/**
+ * Resolve the HTTP status a thrown error will map to — mirrors the branches in
+ * app.onError. Used by the access-log middleware, whose `finally` runs while the
+ * exception is still unwinding (before onError replaces c.res), so reading
+ * c.res.status there would otherwise log the default 200 for failed requests.
+ */
+function errorStatus(err: unknown): number {
+  if (err instanceof AppError) return err.statusCode;
+  if (err instanceof ZodError) return 400;
+  const status = (err as { status?: number } | null)?.status;
+  if (typeof status === "number" && status >= 400 && status < 600) return status;
+  return 500;
+}
+
 export function createApp() {
   const app = new Hono<AppEnv>();
 
@@ -59,11 +73,17 @@ export function createApp() {
     const { method } = c.req;
     const path = c.req.path;
 
+    let errStatus: number | undefined;
     try {
       await next();
+    } catch (err) {
+      // onError hasn't run yet during unwinding; capture the real status here
+      // and re-throw so onError still builds the response body.
+      errStatus = errorStatus(err);
+      throw err;
     } finally {
       const durationMs = Date.now() - start;
-      const status = c.res.status;
+      const status = errStatus ?? c.res.status;
       if (env.NODE_ENV !== "test") {
         reqLogger.info({ method, path, status, durationMs }, "request");
       }
@@ -120,7 +140,12 @@ export function createApp() {
     if (typeof status === "number" && status >= 400 && status < 600) {
       reqLogger.warn({ err, status }, "HTTP error");
       return c.json<ErrorEnvelope>(
-        toErrorPayload("HTTP_ERROR", err.message, rid),
+        toErrorPayload(
+          "HTTP_ERROR",
+          // 生产环境不回传原始 message——上游 fetch 错误常带内部 URL/主机名。
+          env.NODE_ENV === "development" ? err.message : "Upstream request failed",
+          rid,
+        ),
         status as ContentfulStatusCode,
       );
     }

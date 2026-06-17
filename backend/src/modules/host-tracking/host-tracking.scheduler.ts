@@ -19,6 +19,8 @@ import { listDueHostsForTick, probeHost } from "./host-tracking.service.js";
 
 let task: ScheduledTask | null = null;
 let running = false;
+/** 当前在跑的 tick promise（用于优雅关闭时 drain） */
+let inflight: Promise<void> | null = null;
 
 async function runTick(): Promise<void> {
   if (running) {
@@ -86,23 +88,36 @@ export function startHostTrackingScheduler(): boolean {
   }
 
   task = cron.schedule(env.HOST_TRACKING_CRON, () => {
-    void runTick();
+    inflight = runTick().finally(() => {
+      inflight = null;
+    });
   });
 
   logger.info({ cron: env.HOST_TRACKING_CRON }, "host-tracking scheduler started");
   return true;
 }
 
-/** 停止调度器（用于优雅关闭） */
-export function stopHostTrackingScheduler(): void {
+/** 停止调度器（用于优雅关闭）。取消未来触发，并 await 正在跑的 tick 跑完。 */
+export async function stopHostTrackingScheduler(): Promise<void> {
   if (task) {
     task.stop();
     task = null;
     logger.info("host-tracking scheduler stopped");
   }
+  // drain：让在跑的 probe 把 DB 写完，避免关机时截断快照。
+  if (inflight) {
+    try {
+      await inflight;
+    } catch {
+      // runTick 自己已 catch 并记日志，这里只是等它结束
+    }
+  }
 }
 
 /** 测试 / 手工触发：立即跑一轮 (不等 cron) */
 export async function triggerTickNow(): Promise<void> {
-  await runTick();
+  inflight = runTick().finally(() => {
+    inflight = null;
+  });
+  await inflight;
 }
