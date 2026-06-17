@@ -130,6 +130,13 @@ async function tryEmbedAndStore(row: RagPaperRow, logger: Logger): Promise<boole
     );
     return false;
   }
+  if (!env.LLM_EMBEDDINGS_ENABLED) {
+    logger.debug(
+      { paperId: row.id },
+      "Skipping embedding generation: LLM_EMBEDDINGS_ENABLED=false (provider has no /embeddings)",
+    );
+    return false;
+  }
   const text = buildEmbeddingText(row.title, row.abstract);
   try {
     const vec = await llmClient.embedText(text, logger);
@@ -303,25 +310,33 @@ export async function askRagQuery(
   // Step 3: embedding rerank（best effort）
   let rerankedIds: number[] = candidateIds; // 默认用 FTS 顺序
   let usedEmbedding = false;
-  try {
-    const qVec = await llmClient.embedText(question, logger);
-    const embeddings = await repo.getRagPaperEmbeddingsByIds(candidateIds);
-    if (embeddings.length > 0) {
-      rerankedIds = rerankByCosine(candidateIds, qVec, embeddings);
-      usedEmbedding = true;
-      logger.debug(
-        { totalCandidates: candidateIds.length, withEmbedding: embeddings.length },
-        "Reranked candidates by embedding similarity",
-      );
-    } else {
-      logger.warn(
-        { candidateCount: candidateIds.length },
-        "No embeddings found for any candidate; falling back to FTS ranking",
-      );
+  if (!env.LLM_EMBEDDINGS_ENABLED) {
+    // 后端无 /embeddings（如 DeepSeek）：直接用 FTS 排序，省掉一个必失败的请求。
+    logger.debug(
+      { candidateCount: candidateIds.length },
+      "Embeddings disabled (LLM_EMBEDDINGS_ENABLED=false); using FTS ranking",
+    );
+  } else {
+    try {
+      const qVec = await llmClient.embedText(question, logger);
+      const embeddings = await repo.getRagPaperEmbeddingsByIds(candidateIds);
+      if (embeddings.length > 0) {
+        rerankedIds = rerankByCosine(candidateIds, qVec, embeddings);
+        usedEmbedding = true;
+        logger.debug(
+          { totalCandidates: candidateIds.length, withEmbedding: embeddings.length },
+          "Reranked candidates by embedding similarity",
+        );
+      } else {
+        logger.warn(
+          { candidateCount: candidateIds.length },
+          "No embeddings found for any candidate; falling back to FTS ranking",
+        );
+      }
+    } catch (err) {
+      // embedding 失败不影响主流程：退回 FTS 排序，仍然能生成回答
+      logger.warn({ err }, "Embedding rerank failed; falling back to FTS ranking");
     }
-  } catch (err) {
-    // embedding 失败不影响主流程：退回 FTS 排序，仍然能生成回答
-    logger.warn({ err }, "Embedding rerank failed; falling back to FTS ranking");
   }
 
   const topIds = rerankedIds.slice(0, topK);
