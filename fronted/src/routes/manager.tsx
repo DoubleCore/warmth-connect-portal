@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
@@ -9,11 +9,9 @@ import {
   ArrowLeft,
   Clock,
   Cpu,
-  Download,
   Gauge,
   History,
   Loader2,
-  Maximize2,
   Send,
   TerminalSquare,
   User,
@@ -388,31 +386,6 @@ function UserBubble({ children }: { children: React.ReactNode }) {
   );
 }
 
-function MetricRow({
-  label,
-  value,
-  trend,
-}: {
-  label: string;
-  value: string;
-  trend?: "up" | "down";
-}) {
-  return (
-    <div className="flex items-center justify-between border-b border-border/60 px-3 py-2 text-sm last:border-none">
-      <span className="font-mono text-xs text-muted-foreground">{label}</span>
-      <span
-        className={cn(
-          "inline-flex items-center gap-1 font-mono tabular-nums",
-          trend === "down" && "text-[oklch(0.74_0.18_155)]",
-        )}
-      >
-        {value}
-        {trend ? <span className="text-[10px]">{trend === "down" ? "↓" : "↑"}</span> : null}
-      </span>
-    </div>
-  );
-}
-
 function SlashChip({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
   return (
     <button
@@ -601,120 +574,6 @@ function StatCard({
   );
 }
 
-function LossCurveCard({ active }: { active: ReproductionRecord }) {
-  const { t } = useI18n();
-  const points = useMemo(() => buildLossSeries(active.id, 120), [active.id]);
-
-  return (
-    <div className="rounded-2xl border border-border bg-card p-5">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold">{t("manager.metrics.lossCurve")}</div>
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ background: "oklch(0.7 0.18 300)" }}
-              aria-hidden
-            />
-            Train
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="h-2 w-2 rounded-full"
-              style={{ background: "oklch(0.74 0.18 155)" }}
-              aria-hidden
-            />
-            Eval
-          </span>
-        </div>
-      </div>
-      <svg viewBox="0 0 400 140" className="mt-3 h-36 w-full">
-        {/* grid */}
-        {[0.5, 1, 1.5, 2].map((v, i) => (
-          <g key={i}>
-            <line
-              x1={40}
-              x2={390}
-              y1={30 + i * 25}
-              y2={30 + i * 25}
-              stroke="oklch(0.3 0.02 270 / 0.5)"
-              strokeDasharray="3 4"
-            />
-            <text x={8} y={34 + i * 25} fontSize={9} fill="oklch(0.6 0.02 270)">
-              {(2 - v / 1).toFixed(1)}
-            </text>
-          </g>
-        ))}
-        <path
-          d={lossPath(points.train)}
-          fill="none"
-          stroke="oklch(0.7 0.18 300)"
-          strokeWidth={1.75}
-        />
-        <path
-          d={lossPath(points.eval)}
-          fill="none"
-          stroke="oklch(0.74 0.18 155)"
-          strokeWidth={1.5}
-          strokeDasharray="4 4"
-        />
-      </svg>
-    </div>
-  );
-}
-
-function LiveLogsCard({ active }: { active: ReproductionRecord }) {
-  const { t } = useI18n();
-  const lines = useMemo(() => buildLogLines(active), [active]);
-
-  return (
-    <div className="flex min-h-0 flex-col rounded-2xl border border-border bg-card">
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <div className="inline-flex items-center gap-2 text-sm font-semibold">
-          <span className="h-2 w-2 rounded-full bg-[oklch(0.74_0.18_155)]" aria-hidden />
-          {t("manager.logs.heading")}
-        </div>
-        <div className="flex items-center gap-1 text-muted-foreground">
-          <IconBtn icon={Gauge} label="filter" />
-          <IconBtn icon={Download} label="download" />
-          <IconBtn icon={Maximize2} label="expand" />
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3 font-mono text-[11.5px] leading-relaxed">
-        {lines.map((line, i) => (
-          <div key={i} className="break-all">
-            <span className="text-muted-foreground">{line.time}</span>{" "}
-            <span
-              className={cn(
-                "font-semibold",
-                line.level === "INFO" && "text-primary",
-                line.level === "SUCCESS" && "text-[oklch(0.74_0.18_155)]",
-                line.level === "WARNING" && "text-amber-500",
-                line.level === "ERROR" && "text-destructive",
-              )}
-            >
-              {line.level}
-            </span>{" "}
-            <span className="text-foreground">{line.body}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function IconBtn({ icon: Icon, label }: { icon: typeof Gauge; label: string }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      className="rounded-md p-1.5 hover:bg-secondary hover:text-foreground"
-    >
-      <Icon className="h-3.5 w-3.5" aria-hidden />
-    </button>
-  );
-}
-
 // ---------- 真实监控组件 ----------
 
 function HostStatusCard({
@@ -890,44 +749,6 @@ function EmptyState() {
   );
 }
 
-/** 可复现的伪随机数 — 同一 record.id 多次刷新结果一致，避免 UI 抖动 */
-function deterministic(seed: string, salt: number, range: number): number {
-  let h = 2166136261 ^ salt;
-  for (let i = 0; i < seed.length; i += 1) {
-    h ^= seed.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return Math.abs(h) % range;
-}
-
-function buildLossSeries(seed: string, count: number) {
-  const train: number[] = [];
-  const evalArr: number[] = [];
-  let cur = 2.1;
-  for (let i = 0; i < count; i += 1) {
-    const noise = (deterministic(seed, i, 100) / 100 - 0.5) * 0.06;
-    cur = Math.max(0.4, cur * 0.985 + noise);
-    train.push(cur);
-    evalArr.push(cur + 0.12 + (deterministic(seed, i + 1000, 80) / 80 - 0.5) * 0.05);
-  }
-  return { train, eval: evalArr };
-}
-
-function lossPath(values: number[]): string {
-  if (values.length === 0) return "";
-  const max = 2.2;
-  const min = 0.4;
-  const toY = (v: number) => 130 - ((v - min) / (max - min)) * 100;
-  const step = 350 / Math.max(1, values.length - 1);
-  return values
-    .map((v, i) => {
-      const x = 40 + i * step;
-      const y = toY(v);
-      return i === 0 ? `M${x.toFixed(1)},${y.toFixed(1)}` : `L${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-}
-
 function gpuUtilBars(util: number) {
   const bars: number[] = [];
   for (let i = 0; i < 6; i += 1) {
@@ -937,73 +758,4 @@ function gpuUtilBars(util: number) {
   return bars;
 }
 
-function etaFor(r: ReproductionRecord): string {
-  if (r.status === "success") return "0h 00m";
-  if (r.status === "failed" || r.status === "paused") return "—";
-  const remain = Math.max(0, 100 - r.progress);
-  const minutes = Math.round(remain * 2.45);
-  const h = Math.floor(minutes / 60);
-  const m = minutes % 60;
-  return `${h}h ${String(m).padStart(2, "0")}m`;
-}
 
-function shortId(id: string): string {
-  return id.slice(0, 8);
-}
-
-function formatClock(iso: string | null): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function buildLogLines(r: ReproductionRecord) {
-  const base = r.startedAt ? new Date(r.startedAt) : new Date();
-  const step0 = 14_200 + deterministic(r.id, 99, 10_000);
-  const line = (n: number, level: "INFO" | "SUCCESS" | "WARNING" | "ERROR", body: string) => ({
-    time: formatLogTs(new Date(base.getTime() + n * 15_000)),
-    level,
-    body,
-  });
-  return [
-    line(0, "INFO", "Initializing distributed training context…"),
-    line(1, "INFO", "Found 4 nodes, 32 GPUs total (NVIDIA A100-SXM4-80GB)."),
-    line(2, "INFO", "Loading model weights from s3://models/base/"),
-    line(3, "INFO", "Model loaded successfully. Allocating VRAM."),
-    line(4, "SUCCESS", "VRAM allocation complete. Rank 0 ready."),
-    line(5, "INFO", "Starting data loader workers (num_workers=16)."),
-    line(6, "INFO", "Beginning Epoch 12."),
-    line(7, "INFO", `Step ${step0}/50000 | Loss: 1.051 | lr: 2.5e-5 | grad_norm: 0.84 | 4.1 it/s`),
-    line(
-      8,
-      "WARNING",
-      "Node-03 detected slight temperature anomaly (88°C). Throttling gracefully.",
-    ),
-    line(
-      9,
-      "INFO",
-      `Step ${step0 + 5}/50000 | Loss: 1.042 | lr: 2.5e-5 | grad_norm: 0.81 | 4.2 it/s`,
-    ),
-    line(
-      10,
-      "INFO",
-      `Step ${step0 + 10}/50000 | Loss: 1.038 | lr: 2.5e-5 | grad_norm: 0.79 | 4.2 it/s`,
-    ),
-    line(
-      11,
-      "INFO",
-      `Step ${step0 + 15}/50000 | Loss: 1.035 | lr: 2.5e-5 | grad_norm: 0.80 | 4.2 it/s`,
-    ),
-  ];
-}
-
-function formatLogTs(d: Date): string {
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mi = String(d.getMinutes()).padStart(2, "0");
-  const ss = String(d.getSeconds()).padStart(2, "0");
-  return `[${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}]`;
-}

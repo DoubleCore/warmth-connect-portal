@@ -338,39 +338,15 @@ export function createFastClawClient(): FastClawClient {
       // 返回 AsyncIterable，解析 OpenAI SSE 格式
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
 
-      return (async function* () {
-        let buffer = "";
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += value;
-
-            const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-            const parts = normalized.split("\n\n");
-            buffer = parts.pop() ?? "";
-
-            for (const frame of parts) {
-              const chunk = parseStreamFrame(frame);
-              if (chunk) yield chunk;
-            }
-          }
-          // flush remaining
-          if (buffer.trim().length > 0) {
-            const chunk = parseStreamFrame(buffer);
-            if (chunk) yield chunk;
-          }
-        } catch (err) {
-          logger?.error({ err, url }, "FastClaw stream read error");
-          throw new FastClawError("FASTCLAW_UPSTREAM_ERROR", "FastClaw 流式读取失败。", 502);
-        } finally {
-          try {
-            await reader.cancel();
-          } catch {
-            // ignore
-          }
-        }
-      })();
+      return readSseFrames(
+        reader,
+        (frame) => {
+          const chunk = parseStreamFrame(frame);
+          return chunk ? [chunk] : [];
+        },
+        logger,
+        "chat",
+      );
     },
 
     async webChatStream(message, logger, options) {
@@ -432,48 +408,17 @@ export function createFastClawClient(): FastClawClient {
 
       const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
 
-      return (async function* () {
-        let buffer = "";
-        let sawContentDelta = false;
-        try {
-          while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += value;
-
-            const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-            const parts = normalized.split("\n\n");
-            buffer = parts.pop() ?? "";
-
-            for (const frame of parts) {
-              const chunks = parseWebChatStreamFrame(frame, { sawContentDelta });
-              if (chunks.sawContentDelta) sawContentDelta = true;
-              for (const chunk of chunks.items) {
-                yield chunk;
-              }
-            }
-          }
-          if (buffer.trim().length > 0) {
-            const chunks = parseWebChatStreamFrame(buffer, { sawContentDelta });
-            for (const chunk of chunks.items) {
-              yield chunk;
-            }
-          }
-        } catch (err) {
-          logger?.error({ err, url }, "FastClaw web chat stream read error");
-          throw new FastClawError(
-            "FASTCLAW_UPSTREAM_ERROR",
-            "FastClaw Web Chat 流式读取失败。",
-            502,
-          );
-        } finally {
-          try {
-            await reader.cancel();
-          } catch {
-            // ignore
-          }
-        }
-      })();
+      let sawContentDelta = false;
+      return readSseFrames(
+        reader,
+        (frame) => {
+          const result = parseWebChatStreamFrame(frame, { sawContentDelta });
+          if (result.sawContentDelta) sawContentDelta = true;
+          return result.items;
+        },
+        logger,
+        "web-chat",
+      );
     },
 
     async ping(logger) {
@@ -496,6 +441,48 @@ export function createFastClawClient(): FastClawClient {
       }
     },
   };
+}
+
+// ---------- SSE 流读取共用逻辑 ----------
+
+async function* readSseFrames<T>(
+  reader: ReadableStreamDefaultReader<string>,
+  parseFrame: (frame: string) => T[],
+  logger: Logger | undefined,
+  label: string,
+): AsyncGenerator<T> {
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += value;
+
+      const normalized = buffer.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+      const parts = normalized.split("\n\n");
+      buffer = parts.pop() ?? "";
+
+      for (const frame of parts) {
+        for (const chunk of parseFrame(frame)) {
+          yield chunk;
+        }
+      }
+    }
+    if (buffer.trim().length > 0) {
+      for (const chunk of parseFrame(buffer)) {
+        yield chunk;
+      }
+    }
+  } catch (err) {
+    logger?.error({ err }, `FastClaw ${label} stream read error`);
+    throw new FastClawError("FASTCLAW_UPSTREAM_ERROR", `FastClaw ${label} 流式读取失败。`, 502);
+  } finally {
+    try {
+      await reader.cancel();
+    } catch {
+      // ignore
+    }
+  }
 }
 
 /**

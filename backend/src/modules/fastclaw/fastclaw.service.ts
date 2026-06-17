@@ -150,22 +150,20 @@ export async function buildDeployMessage(input: FastClawDeployInput): Promise<{
 
   const systemPrompt = `你是一个论文代码部署助手。你的任务是帮助用户将论文的代码部署到指定的 GPU 服务器上。
 
-## SSH 连接信息获取方式
-通过后端 API 查询目标设备的 SSH 凭证（含明文密码）：
-GET http://localhost:8787/api/host-tracking/hosts/${input.deviceId}
-
-返回的 JSON 里包含：host、port、username、password 字段。
-用 sshpass -p '<password>' ssh -o StrictHostKeyChecking=no <username>@<host> 连接。
-
 ## 目标设备
 - 名称：${device.name}
 - IP：${cred.host}
 - 用户：${cred.username}
-- 密码：${cred.encryptedPassword ?? "(未设置，请查询 API)"}
 - SSH 端口：${cred.port}
 
+## SSH 连接方式
+后端已为你注入 SSH 凭证，使用 sshpass 方式连接：
+sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no ${cred.username}@${cred.host} -p ${cred.port}
+
+注意：密码已通过环境变量 $SSH_PASSWORD 注入，不要在对话中明文输出密码。
+
 ## 工作流程
-1. 用密码 SSH 连接到目标设备（sshpass 方式，不要用密钥）
+1. SSH 连接到目标设备
 2. 确认 GPU 环境（nvidia-smi）
 3. 克隆论文代码仓库到 ~/LHL/ 目录
 4. 创建虚拟环境并安装依赖
@@ -174,7 +172,6 @@ GET http://localhost:8787/api/host-tracking/hosts/${input.deviceId}
 7. 报告部署结果
 
 ## 注意
-- 一律使用密码登录，不要尝试 SSH 密钥
 - 连接时加 -o StrictHostKeyChecking=no
 - 每完成一步都报告进度
 - 遇到错误分析原因并尝试解决`;
@@ -183,11 +180,19 @@ GET http://localhost:8787/api/host-tracking/hosts/${input.deviceId}
     ? `\n- GitHub 仓库：${paper.repoUrl}`
     : "\n- GitHub 仓库：未提供（请搜索或询问用户）";
 
+  let authors = "未知";
+  try {
+    const parsed = JSON.parse(paper.authorsJson);
+    if (Array.isArray(parsed) && parsed.length > 0) authors = parsed.join(", ");
+  } catch {
+    // malformed authorsJson — use fallback
+  }
+
   const message = `请帮我部署论文《${paper.title}》的代码到设备 ${device.name} (${cred.host})。
 
 论文信息：
 - 标题：${paper.title}${repoInfo}
-- 作者：${JSON.parse(paper.authorsJson).join(", ") || "未知"}
+- 作者：${authors}
 
 目标设备：
 - 名称：${device.name}
