@@ -25,7 +25,11 @@ if not exist "%FASTCLAW_BIN%" (
     echo     [!] not found: %FASTCLAW_BIN%
     echo         skipping FastClaw - put the official binary there first.
 ) else (
-    start "Hermes FastClaw 18953" cmd /k "set FASTCLAW_HOME=%FASTCLAW_HOME%&& set FASTCLAW_PORT=18953&& "%FASTCLAW_BIN%" gateway --port 18953"
+    REM FASTCLAW_ALLOW_HOST_EXEC=true: enable the host_exec escape hatch so the
+    REM agent can run shell commands directly on the Windows host when the Docker
+    REM sandbox is unavailable (no Docker Desktop). Without this the default docker
+    REM backend fails and all exec (curl/python/ssh) tool calls die.
+    start "Hermes FastClaw 18953" cmd /k "set FASTCLAW_HOME=%FASTCLAW_HOME%&& set FASTCLAW_PORT=18953&& set FASTCLAW_ALLOW_HOST_EXEC=true&& "%FASTCLAW_BIN%" gateway --port 18953"
 )
 
 REM ---------- 2. Backend (Hono + tsx watch) ----------
