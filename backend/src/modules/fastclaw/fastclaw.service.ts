@@ -106,9 +106,12 @@ export async function chatStream(
   ensureConfigured();
 
   if (input.agentRole === "deploy") {
+    // 不要为缺失的 sessionKey 伪造时间戳 key——那样每轮请求都是不同的 key，
+    // FastClaw 会每轮开新会话、丢上下文，比直接透传 undefined 还糟。
+    // 多轮部署追问由前端缓存并回传稳定 sessionKey（见 use-fastclaw-deploy）。
     return fastclawClient.webChatStream(input.message, logger, {
       agentId: resolveAgentId(input),
-      sessionKey: input.sessionKey ?? `wcp-deploy-chat-${Date.now()}`,
+      sessionKey: input.sessionKey,
     });
   }
 
@@ -131,11 +134,13 @@ export async function ping(logger: Logger): Promise<boolean> {
 /**
  * 构造部署模板消息。
  *
- * 把论文信息 + 设备信息拼成一条结构化的部署指令，发给 FastClaw 论文部署助手。
+ * 把论文信息 + 设备信息 + SSH 连接说明拼成一条完整的部署指令。
+ *
+ * 注意：deploy 走 webChatStream，它只接受单个 message 字符串、没有 system 通道，
+ * 所以连接说明必须并进 message 正文，不能依赖单独的 systemPrompt 字段。
  */
 export async function buildDeployMessage(input: FastClawDeployInput): Promise<{
   message: string;
-  systemPrompt: string;
 }> {
   // 获取论文信息
   const paper = await paperRepo.getPaperById(input.paperId);
@@ -148,7 +153,29 @@ export async function buildDeployMessage(input: FastClawDeployInput): Promise<{
   const cred = await hostRepo.getHostCredentialById(input.deviceId);
   if (!cred) throw new NotFoundError("HostCredential", input.deviceId);
 
-  const systemPrompt = `你是一个论文代码部署助手。你的任务是帮助用户将论文的代码部署到指定的 GPU 服务器上。
+  // SSH 采用密钥认证：keyFile 是目标机上的私钥路径（非机密），不涉及密码下发。
+  const sshSection = cred.keyFile
+    ? `## SSH 连接方式（密钥认证）
+ssh -i ${cred.keyFile} -o StrictHostKeyChecking=no ${cred.username}@${cred.host} -p ${cred.port}
+
+私钥已在目标机器上配置，直接用上面的命令连接，不需要密码。`
+    : `## SSH 连接方式
+⚠️ 该设备尚未配置 SSH 密钥（keyFile 为空），无法自动连接。
+请先提示用户在设备管理里为 ${device.name} 配置 SSH 私钥路径（keyFile），再重新发起部署。`;
+
+  const repoInfo = paper.repoUrl
+    ? `\n- GitHub 仓库：${paper.repoUrl}`
+    : "\n- GitHub 仓库：未提供（请搜索或询问用户）";
+
+  let authors = "未知";
+  try {
+    const parsed = JSON.parse(paper.authorsJson);
+    if (Array.isArray(parsed) && parsed.length > 0) authors = parsed.join(", ");
+  } catch {
+    // malformed authorsJson — use fallback
+  }
+
+  const message = `你是一个论文代码部署助手。请帮我把论文《${paper.title}》的代码部署到指定 GPU 服务器并启动训练。
 
 ## 目标设备
 - 名称：${device.name}
@@ -156,11 +183,11 @@ export async function buildDeployMessage(input: FastClawDeployInput): Promise<{
 - 用户：${cred.username}
 - SSH 端口：${cred.port}
 
-## SSH 连接方式
-后端已为你注入 SSH 凭证，使用 sshpass 方式连接：
-sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no ${cred.username}@${cred.host} -p ${cred.port}
+${sshSection}
 
-注意：密码已通过环境变量 $SSH_PASSWORD 注入，不要在对话中明文输出密码。
+## 论文信息
+- 标题：${paper.title}${repoInfo}
+- 作者：${authors}
 
 ## 工作流程
 1. SSH 连接到目标设备
@@ -176,67 +203,7 @@ sshpass -p '$SSH_PASSWORD' ssh -o StrictHostKeyChecking=no ${cred.username}@${cr
 - 每完成一步都报告进度
 - 遇到错误分析原因并尝试解决`;
 
-  const repoInfo = paper.repoUrl
-    ? `\n- GitHub 仓库：${paper.repoUrl}`
-    : "\n- GitHub 仓库：未提供（请搜索或询问用户）";
-
-  let authors = "未知";
-  try {
-    const parsed = JSON.parse(paper.authorsJson);
-    if (Array.isArray(parsed) && parsed.length > 0) authors = parsed.join(", ");
-  } catch {
-    // malformed authorsJson — use fallback
-  }
-
-  const message = `请帮我部署论文《${paper.title}》的代码到设备 ${device.name} (${cred.host})。
-
-论文信息：
-- 标题：${paper.title}${repoInfo}
-- 作者：${authors}
-
-目标设备：
-- 名称：${device.name}
-- IP：${cred.host}
-- 用户：${cred.username}
-
-请按以下步骤执行：
-1. SSH 连接到目标设备
-2. 克隆代码仓库到合适的目录
-3. 创建虚拟环境并安装依赖
-4. 配置训练参数
-5. 启动训练任务
-
-如果遇到问题请告诉我。`;
-
-  return { message, systemPrompt };
-}
-
-/**
- * 发起部署对话（非流式，因为 FastClaw streaming 对当前 LLM 后端不稳定）。
- *
- * 返回完整回复文本，由路由层包装成 SSE 推给前端。
- */
-export async function deployChat(input: FastClawDeployInput, logger: Logger): Promise<string> {
-  ensureConfigured();
-
-  const { message, systemPrompt } = await buildDeployMessage(input);
-  const messages = buildMessages({
-    message,
-    systemPrompt,
-    stream: false,
-  });
-
-  logger.info(
-    { paperId: input.paperId, deviceId: input.deviceId, reproductionId: input.reproductionId },
-    "FastClaw deploy chat initiated (non-streaming)",
-  );
-
-  const result = await fastclawClient.chat(messages, logger, {
-    agentId: env.FASTCLAW_AGENT_DEPLOY,
-    sessionKey: input.sessionKey,
-  });
-
-  return result.content;
+  return { message };
 }
 
 /**
@@ -259,8 +226,10 @@ export async function deployChatStream(
     "FastClaw deploy chat initiated (web stream)",
   );
 
+  // 与前端同款稳定 sessionKey（fronted 按 `wcp-deploy-${reproductionId}` 派生），
+  // 让同一条复现记录的多次部署/追问归并到同一会话窗口。
   return fastclawClient.webChatStream(message, logger, {
     agentId: env.FASTCLAW_AGENT_DEPLOY,
-    sessionKey: input.sessionKey ?? input.reproductionId,
+    sessionKey: input.sessionKey ?? `wcp-deploy-${input.reproductionId}`,
   });
 }

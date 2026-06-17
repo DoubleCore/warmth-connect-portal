@@ -422,7 +422,7 @@ export function createFastClawClient(): FastClawClient {
     },
 
     async ping(logger) {
-      // FastClaw 没有独立 /health，用 /v1/models 做简易探活
+      // FastClaw 暴露 /health 做存活探测。
       const url = joinUrl(baseUrl, "/health");
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 3000);
@@ -563,7 +563,10 @@ function parseWebChatStreamFrame(
   switch (evt.type) {
     case "content_delta": {
       const delta = evt.data?.delta ?? "";
-      return { items: delta ? [item(delta)] : [], sawContentDelta: true };
+      // 空 delta（keepalive 帧）不产出 item，也不能 latch sawContentDelta，
+      // 否则后面的最终 content 事件会被 !sawContentDelta 守卫错误吞掉。
+      if (!delta) return { items: [], sawContentDelta: false };
+      return { items: [item(delta)], sawContentDelta: true };
     }
     case "content": {
       const content = evt.data?.content ?? "";

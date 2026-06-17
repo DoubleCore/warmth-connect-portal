@@ -58,6 +58,17 @@ export class SSHClient {
   async connect(): Promise<void> {
     if (this.isConnected) return;
 
+    // 重连前先收掉上一个已死但未释放的 Client，避免 socket / 监听器泄露。
+    if (this.client) {
+      try {
+        this.client.removeAllListeners();
+        this.client.end();
+      } catch {
+        // 旧连接清理失败无所谓，继续建新连接
+      }
+      this.client = null;
+    }
+
     const cfg: ConnectConfig = {
       host: this.opts.host,
       port: this.opts.port,
@@ -102,12 +113,15 @@ export class SSHClient {
       client.connect(cfg);
     });
 
-    // 后续 error 事件标记断开
+    // 后续 error / close 事件标记断开，并释放死连接引用。
+    // 只在仍是当前 client 时清理，避免竞态下把一个新建立的连接误置空。
     client.on("error", () => {
       this.connected = false;
+      if (this.client === client) this.client = null;
     });
     client.on("close", () => {
       this.connected = false;
+      if (this.client === client) this.client = null;
     });
   }
 
@@ -178,52 +192,6 @@ export class SSHClient {
     });
   }
 
-  /**
-   * 以 sudo 执行命令 (通过 stdin 传入密码)
-   *
-   * 注意：要求服务端 sudoers 允许 stdin 密码 (默认允许)，
-   * 如果 sudoers 配了 NOPASSWD，直接用 exec 即可。
-   */
-  async sudo(command: string, sudoPassword?: string): Promise<ExecResult> {
-    const pwd = sudoPassword ?? this.opts.password;
-    if (!pwd) {
-      throw new Error("sudo 需要密码，但未提供 sudoPassword 或 password");
-    }
-    // -S: 从 stdin 读密码; -p '': 关闭密码提示符避免污染输出
-    const wrapped = `sudo -S -p '' ${command}`;
-    if (!this.isConnected || !this.client) {
-      await this.connect();
-    }
-    const client = this.client!;
-
-    return new Promise((resolve, reject) => {
-      client.exec(wrapped, { pty: true }, (err, stream) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        let stdout = "";
-        let stderr = "";
-        let code = -1;
-
-        stream.on("data", (chunk: Buffer) => {
-          stdout += chunk.toString("utf8");
-        });
-        stream.stderr.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString("utf8");
-        });
-        stream.on("exit", (exitCode: number | null) => {
-          code = exitCode ?? -1;
-        });
-        stream.on("close", () => resolve({ code, stdout, stderr }));
-        stream.on("error", reject);
-
-        // 输入密码
-        stream.write(`${pwd}\n`);
-      });
-    });
-  }
-
   /** 打开 SFTP 会话；调用方负责 sftp.end() */
   async openSftp(): Promise<SFTPWrapper> {
     if (!this.isConnected || !this.client) {
@@ -280,11 +248,5 @@ export class SSHClient {
     } finally {
       sftp.end();
     }
-  }
-
-  /** 暴露底层 ssh2 Client，给 tunnel 等高级功能使用 */
-  getRawClient(): Client {
-    if (!this.client) throw new Error("尚未连接");
-    return this.client;
   }
 }

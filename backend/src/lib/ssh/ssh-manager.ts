@@ -21,10 +21,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_CONFIG_DIR = pathResolve(__dirname, "../../../scripts/ssh");
 const DEFAULT_CONFIG_PATH = pathResolve(DEFAULT_CONFIG_DIR, "config.yaml");
 const EXAMPLE_CONFIG_PATH = pathResolve(DEFAULT_CONFIG_DIR, "config.example.yaml");
+// execOn 缺省命令超时：命令通常比建连更久，给 30s 看门狗避免远端 hang 住永不返回。
+const DEFAULT_EXEC_TIMEOUT_MS = 30_000;
 
 export class SSHManager {
   private config: SSHToolConfig | null = null;
   private readonly pool = new Map<string, SSHClient>();
+  /** 正在建立中的连接，按服务器名去重，避免并发 getClient 建多条连接 */
+  private readonly connecting = new Map<string, Promise<SSHClient>>();
 
   constructor(private readonly configPath: string = DEFAULT_CONFIG_PATH) {}
 
@@ -81,24 +85,37 @@ export class SSHManager {
     const existing = this.pool.get(serverName);
     if (existing && existing.isConnected) return existing;
 
-    const client = new SSHClient({
-      host: srv.host,
-      port: srv.port,
-      username: srv.username,
-      password: srv.password,
-      keyFile: srv.keyFile,
-      keyPassphrase: srv.keyPassphrase,
-      timeoutMs: cfg.timeoutMs,
+    // 去重：若已有同名连接正在建立，复用那条 promise，别再建一条。
+    const pending = this.connecting.get(serverName);
+    if (pending) return pending;
+
+    const build = (async () => {
+      const client = new SSHClient({
+        host: srv.host,
+        port: srv.port,
+        username: srv.username,
+        password: srv.password,
+        keyFile: srv.keyFile,
+        keyPassphrase: srv.keyPassphrase,
+        timeoutMs: cfg.timeoutMs,
+      });
+      await client.connect();
+      this.pool.set(serverName, client);
+      return client;
+    })().finally(() => {
+      this.connecting.delete(serverName);
     });
-    await client.connect();
-    this.pool.set(serverName, client);
-    return client;
+
+    this.connecting.set(serverName, build);
+    return build;
   }
 
   /** 在指定服务器执行命令 */
   async execOn(serverName: string, command: string): Promise<ExecResult> {
+    const cfg = this.requireConfig();
     const client = await this.getClient(serverName);
-    return client.exec(command);
+    // 带超时执行：避免远端 hang 住时 execOn 永不返回。
+    return client.exec(command, { timeoutMs: cfg.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS });
   }
 
   /** 在所有服务器并行执行命令 */
@@ -126,6 +143,7 @@ export class SSHManager {
       }
     }
     this.pool.clear();
+    this.connecting.clear();
   }
 
   /** 暴露已加载的配置（只读） */
