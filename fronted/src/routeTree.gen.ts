@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as WorkspaceRouteImport } from './routes/workspace'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SearchRouteImport } from './routes/search'
+import { Route as ResearchRouteImport } from './routes/research'
 import { Route as ManagerRouteImport } from './routes/manager'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as DocsRouteImport } from './routes/docs'
@@ -31,6 +32,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const SearchRoute = SearchRouteImport.update({
   id: '/search',
   path: '/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResearchRoute = ResearchRouteImport.update({
+  id: '/research',
+  path: '/research',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ManagerRoute = ManagerRouteImport.update({
@@ -64,6 +70,7 @@ export interface FileRoutesByFullPath {
   '/docs': typeof DocsRoute
   '/library': typeof LibraryRoute
   '/manager': typeof ManagerRoute
+  '/research': typeof ResearchRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
@@ -74,6 +81,7 @@ export interface FileRoutesByTo {
   '/docs': typeof DocsRoute
   '/library': typeof LibraryRoute
   '/manager': typeof ManagerRoute
+  '/research': typeof ResearchRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
@@ -85,6 +93,7 @@ export interface FileRoutesById {
   '/docs': typeof DocsRoute
   '/library': typeof LibraryRoute
   '/manager': typeof ManagerRoute
+  '/research': typeof ResearchRoute
   '/search': typeof SearchRoute
   '/settings': typeof SettingsRoute
   '/workspace': typeof WorkspaceRoute
@@ -97,6 +106,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/library'
     | '/manager'
+    | '/research'
     | '/search'
     | '/settings'
     | '/workspace'
@@ -107,6 +117,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/library'
     | '/manager'
+    | '/research'
     | '/search'
     | '/settings'
     | '/workspace'
@@ -117,6 +128,7 @@ export interface FileRouteTypes {
     | '/docs'
     | '/library'
     | '/manager'
+    | '/research'
     | '/search'
     | '/settings'
     | '/workspace'
@@ -128,6 +140,7 @@ export interface RootRouteChildren {
   DocsRoute: typeof DocsRoute
   LibraryRoute: typeof LibraryRoute
   ManagerRoute: typeof ManagerRoute
+  ResearchRoute: typeof ResearchRoute
   SearchRoute: typeof SearchRoute
   SettingsRoute: typeof SettingsRoute
   WorkspaceRoute: typeof WorkspaceRoute
@@ -155,6 +168,13 @@ declare module '@tanstack/react-router' {
       path: '/search'
       fullPath: '/search'
       preLoaderRoute: typeof SearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/research': {
+      id: '/research'
+      path: '/research'
+      fullPath: '/research'
+      preLoaderRoute: typeof ResearchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/manager': {
@@ -200,6 +220,7 @@ const rootRouteChildren: RootRouteChildren = {
   DocsRoute: DocsRoute,
   LibraryRoute: LibraryRoute,
   ManagerRoute: ManagerRoute,
+  ResearchRoute: ResearchRoute,
   SearchRoute: SearchRoute,
   SettingsRoute: SettingsRoute,
   WorkspaceRoute: WorkspaceRoute,

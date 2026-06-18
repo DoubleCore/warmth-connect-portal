@@ -31,6 +31,7 @@ const nav: readonly NavEntry[] = [
     to: "/",
     labelKey: "sidebar.commandCenter",
     icon: TerminalSquare,
+    children: [{ to: "/research", labelKey: "sidebar.research", icon: Search }],
   },
   {
     to: "/library",

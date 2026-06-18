@@ -22,7 +22,7 @@ const RECENT_PAPERS_LIMIT = 3;
 const RECENT_RECORDS_LIMIT = 2;
 
 const quickActions = [
-  { labelKey: "home.quickAction.searchPapers", icon: Search, to: "/search" as const },
+  { labelKey: "home.quickAction.searchPapers", icon: Search, to: "/research" as const },
   { labelKey: "home.quickAction.analyzePdf", icon: FileText, to: "/library" as const },
   { labelKey: "home.quickAction.ragChat", icon: MessageSquare, to: "/search" as const },
   { labelKey: "home.quickAction.manageTraining", icon: Cpu, to: "/workspace" as const },
