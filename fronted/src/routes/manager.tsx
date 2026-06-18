@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -7,22 +7,30 @@ import {
   ActivitySquare,
   AlertTriangle,
   ArrowLeft,
+  Bot,
+  CheckCircle2,
   Clock,
   Cpu,
   Gauge,
   History,
   Loader2,
+  PanelRightClose,
+  PanelRightOpen,
+  Paperclip,
+  Search,
   Send,
+  Sparkles,
   TerminalSquare,
   User,
+  XCircle,
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { listReproductionRecords } from "@/api/reproduction";
-import { listDevices } from "@/api/devices";
 import { cn } from "@/lib/utils";
-import { useFastClawDeploy } from "@/hooks/use-fastclaw-deploy";
+import { useFastClawDeploy, type DeployPhase } from "@/hooks/use-fastclaw-deploy";
 import { FastclawToolCard, FastclawProgressRow } from "@/components/hermes/FastclawToolCard";
+import type { FastclawTranscriptItem } from "@/hooks/use-fastclaw-stream";
 import {
   getHostDetail,
   getHostMetricsHistory,
@@ -70,14 +78,23 @@ export const Route = createFileRoute("/manager")({
 function ManagerPage() {
   const { t } = useI18n();
   const { runId } = Route.useSearch();
+  // 右侧遥测面板可折叠：折叠后对话占满整宽，视觉对齐 /research。
+  // 默认展开；用户偏好写进 localStorage，刷新保留。
+  const [telemetryCollapsed, setTelemetryCollapsed] = useState<boolean>(() =>
+    readTelemetryCollapsed(),
+  );
+
+  const toggleTelemetry = () => {
+    setTelemetryCollapsed((prev) => {
+      const next = !prev;
+      writeTelemetryCollapsed(next);
+      return next;
+    });
+  };
 
   const recordsQuery = useQuery({
     queryKey: ["reproduction-records"],
     queryFn: listReproductionRecords,
-  });
-  const devicesQuery = useQuery({
-    queryKey: ["devices"],
-    queryFn: listDevices,
   });
 
   const records = recordsQuery.data?.items ?? [];
@@ -111,18 +128,53 @@ function ManagerPage() {
     );
   }
 
-  const totalNodes = Math.max(1, (devicesQuery.data?.items ?? []).length || 4);
-
   return (
     <Shell active="None">
-      <ManagerShell header={<ManagerHeader active={active} runsList={records} />}>
-        <div className="grid min-h-0 flex-1 gap-6 px-6 pb-6 pt-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-          <CommandInterfacePanel active={active} totalNodes={totalNodes} />
-          <TelemetryPanel active={active} totalNodes={totalNodes} />
+      <ManagerShell
+        header={
+          <ManagerHeader
+            active={active}
+            runsList={records}
+            telemetryCollapsed={telemetryCollapsed}
+            onToggleTelemetry={toggleTelemetry}
+          />
+        }
+      >
+        <div
+          className={cn(
+            "grid min-h-0 flex-1 gap-6 px-6 pb-6 pt-4",
+            telemetryCollapsed ? "lg:grid-cols-1" : "lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]",
+          )}
+        >
+          <div className={cn(telemetryCollapsed && "mx-auto w-full max-w-3xl")}>
+            <CommandInterfacePanel active={active} />
+          </div>
+          {telemetryCollapsed ? null : <TelemetryPanel active={active} />}
         </div>
       </ManagerShell>
     </Shell>
   );
+}
+
+// 折叠偏好持久化（localStorage，SSR 安全）
+const TELEMETRY_COLLAPSE_KEY = "hermes.manager.telemetry-collapsed";
+
+function readTelemetryCollapsed(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(TELEMETRY_COLLAPSE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeTelemetryCollapsed(collapsed: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(TELEMETRY_COLLAPSE_KEY, collapsed ? "1" : "0");
+  } catch {
+    // quota / private mode — 忽略
+  }
 }
 
 // ---------- Shell ----------
@@ -155,11 +207,16 @@ function ManagerShell({
 function ManagerHeader({
   active,
   runsList,
+  telemetryCollapsed,
+  onToggleTelemetry,
 }: {
   active: ReproductionRecord;
   runsList: ReproductionRecord[];
+  telemetryCollapsed: boolean;
+  onToggleTelemetry: () => void;
 }) {
   const { t } = useI18n();
+  const navigate = useNavigate();
   return (
     <div className="flex items-center justify-between gap-4">
       <div className="flex items-center gap-3">
@@ -168,38 +225,45 @@ function ManagerHeader({
         </h1>
         <StatusBadge status={active.status} />
       </div>
-      <select
-        className="rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-        defaultValue={active.id}
-        onChange={(e) => {
-          const next = e.target.value;
-          const url = new URL(window.location.href);
-          url.searchParams.set("runId", next);
-          window.history.replaceState({}, "", url.toString());
-          // Soft navigate via reload; the route picks runId from URL.
-          window.location.reload();
-        }}
-        aria-label={t("manager.switchRun")}
-      >
-        {runsList.map((r) => (
-          <option key={r.id} value={r.id}>
-            {r.paper.title} · {r.status}
-          </option>
-        ))}
-      </select>
+      <div className="flex items-center gap-2">
+        <select
+          className="rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+          value={active.id}
+          onChange={(e) => {
+            // Soft client-side navigation: the route reads runId from search and
+            // re-anchors the active run without a full-page reload.
+            void navigate({ to: "/manager", search: { runId: e.target.value } });
+          }}
+          aria-label={t("manager.switchRun")}
+        >
+          {runsList.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.paper.title} · {r.status}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={onToggleTelemetry}
+          aria-pressed={!telemetryCollapsed}
+          title={telemetryCollapsed ? t("manager.telemetry.show") : t("manager.telemetry.hide")}
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+        >
+          {telemetryCollapsed ? (
+            <PanelRightOpen className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <PanelRightClose className="h-3.5 w-3.5" aria-hidden />
+          )}
+          {telemetryCollapsed ? t("manager.telemetry.show") : t("manager.telemetry.hide")}
+        </button>
+      </div>
     </div>
   );
 }
 
 // ---------- 左：Command Interface ----------
 
-function CommandInterfacePanel({
-  active,
-  totalNodes,
-}: {
-  active: ReproductionRecord;
-  totalNodes: number;
-}) {
+function CommandInterfacePanel({ active }: { active: ReproductionRecord }) {
   const { t } = useI18n();
   const [draft, setDraft] = useState("");
   // persistKey 按 reproductionId 分隔——刷新或切回这条复现都能恢复对话。
@@ -208,6 +272,8 @@ function CommandInterfacePanel({
   // 防 strict-mode 双触发 / 渲染抖动：每个 reproductionId 只允许 fire 一次。
   // reset 时由副作用重置成 null，让下一轮可以重新发起。
   const firedKeyRef = useRef<string | null>(null);
+
+  const isBusy = deploy.phase === "streaming";
 
   // 自动触发部署：必须等到 hook 从 localStorage 恢复完毕，且确实没有任何
   // 历史消息时才发起；这样即使刷新也不会重复打部署初始化指令。
@@ -242,10 +308,14 @@ function CommandInterfacePanel({
     }
   }, [deploy.items]);
 
+  // 把 transcript 按 user 消息聚合成一轮一轮（镜像 /research 的 groupTurns）：
+  // 每条 user 开一轮，后续所有非 user 项归到当前轮，渲染成"提问 → 回答"两行气泡。
+  const turns = useMemo(() => groupDeployTurns(deploy.items), [deploy.items]);
+
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
     const msg = draft.trim();
-    if (!msg) return;
+    if (!msg || isBusy) return;
     setDraft("");
     deploy.send(msg);
   };
@@ -256,71 +326,37 @@ function CommandInterfacePanel({
         <div className="flex items-center gap-2 text-sm font-semibold">
           <TerminalSquare className="h-4 w-4 text-primary" aria-hidden />
           {t("manager.panels.commandInterface")}
-          {deploy.phase === "streaming" && (
-            <span className="ml-2 inline-flex items-center gap-1 text-xs font-normal text-muted-foreground">
-              <Loader2 className="h-3 w-3 animate-spin" />
-              {t("manager.chat.streaming")}
-            </span>
-          )}
         </div>
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground"
-          onClick={() => {
-            firedKeyRef.current = null; // 让下一轮 useEffect 可以重新 fire
-            deploy.reset();
-          }}
-        >
-          <History className="h-3.5 w-3.5" aria-hidden />
-          New
-        </button>
+        <div className="flex items-center gap-2">
+          <DeployPhaseBadge phase={deploy.phase} />
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={isBusy}
+            onClick={() => {
+              firedKeyRef.current = null; // 让下一轮 useEffect 可以重新 fire
+              deploy.reset();
+            }}
+          >
+            <History className="h-3.5 w-3.5" aria-hidden />
+            New
+          </button>
+        </div>
       </div>
 
-      <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto px-4 py-5">
-        {deploy.items.length === 0 && deploy.phase === "idle" && (
-          <div className="text-center text-sm text-muted-foreground py-12">
-            {t("manager.chat.waitingDeploy")}
-          </div>
+      <div ref={scrollRef} className="flex-1 space-y-5 overflow-y-auto px-4 py-5">
+        {turns.length === 0 && deploy.phase === "idle" ? (
+          <EmptyDeployConversation />
+        ) : (
+          turns.map((turn, idx) => (
+            <DeployTurn
+              key={turn.userId ?? `turn-${idx}`}
+              turn={turn}
+              isLast={idx === turns.length - 1}
+              phase={deploy.phase}
+            />
+          ))
         )}
-
-        {deploy.items.map((item) => {
-          switch (item.kind) {
-            case "system":
-              return (
-                <div
-                  key={item.id}
-                  className="text-center text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground"
-                >
-                  {item.content}
-                </div>
-              );
-            case "user":
-              return <UserBubble key={item.id}>{item.content}</UserBubble>;
-            case "tool":
-              return <FastclawToolCard key={item.id} item={item} />;
-            case "progress":
-              return <FastclawProgressRow key={item.id} item={item} />;
-            case "assistant":
-              return (
-                <SystemBubble key={item.id}>
-                  <DeployMarkdown>{item.content}</DeployMarkdown>
-                </SystemBubble>
-              );
-            default:
-              return null;
-          }
-        })}
-
-        {/* 流式但尚无任何工具/文本时，给一句带 spinner 的等待提示，避免空白。 */}
-        {deploy.phase === "streaming" &&
-          !deploy.items.some((it) => it.kind === "tool" || it.kind === "assistant") && (
-            <SystemBubble>
-              <span className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-                正在分析论文与目标主机环境，正在生成部署计划…
-              </span>
-            </SystemBubble>
-          )}
 
         {deploy.error && (
           <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-xs text-destructive">
@@ -329,78 +365,267 @@ function CommandInterfacePanel({
         )}
       </div>
 
-      <form onSubmit={handleSend} className="border-t border-border px-4 py-3">
-        <div className="flex items-center gap-2 rounded-full border border-border bg-background/40 px-4 py-2">
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={t("manager.chat.inputPlaceholder")}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            autoComplete="off"
-            disabled={deploy.phase === "streaming"}
-          />
-          <button
-            type="submit"
-            aria-label={t("manager.chat.send")}
-            className="grid h-8 w-8 place-items-center rounded-full text-primary-foreground disabled:opacity-40"
-            style={{ background: "var(--gradient-primary)" }}
-            disabled={!draft.trim()}
-          >
+      <form
+        onSubmit={handleSend}
+        className="mx-4 mb-4 mt-2 flex items-center gap-3 rounded-full border border-border bg-card px-5 py-3"
+      >
+        <Search className="h-4 w-4 text-muted-foreground" aria-hidden />
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={isBusy ? t("manager.chat.streaming") : t("manager.chat.inputPlaceholder")}
+          className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
+          autoComplete="off"
+          disabled={isBusy}
+        />
+        {/* Paperclip 是视觉占位：部署对话目前不支持附件上传（镜像 /research） */}
+        <button
+          type="button"
+          aria-label={t("search.attach")}
+          disabled
+          className="rounded-full p-1.5 text-muted-foreground opacity-40"
+        >
+          <Paperclip className="h-4 w-4" aria-hidden />
+        </button>
+        <button
+          type="submit"
+          aria-label={t("manager.chat.send")}
+          className="grid h-9 w-9 place-items-center rounded-full text-primary-foreground transition-transform hover:scale-105 disabled:opacity-40"
+          style={{ background: "var(--gradient-primary)" }}
+          disabled={!draft.trim() || isBusy}
+        >
+          {isBusy ? (
+            <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          ) : (
             <Send className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <SlashChip onClick={() => deploy.send("查看当前训练状态")}>/status</SlashChip>
-          <SlashChip onClick={() => deploy.send("查看 GPU 使用情况")}>/gpu</SlashChip>
-          <SlashChip onClick={() => deploy.send("暂停训练")}>/pause</SlashChip>
-        </div>
+          )}
+        </button>
       </form>
-    </div>
-  );
-}
-
-function SystemBubble({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground">
-        <TerminalSquare className="h-4 w-4" aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          System
-        </div>
-        <div className="mt-1 rounded-xl border border-border bg-background/40 px-3 py-2 text-sm leading-relaxed">
-          {children}
-        </div>
+      <div className="mx-4 mb-4 flex flex-wrap gap-2">
+        <SlashChip disabled={isBusy} onClick={() => deploy.send("查看当前训练状态")}>
+          /status
+        </SlashChip>
+        <SlashChip disabled={isBusy} onClick={() => deploy.send("查看 GPU 使用情况")}>
+          /gpu
+        </SlashChip>
+        <SlashChip disabled={isBusy} onClick={() => deploy.send("暂停训练")}>
+          /pause
+        </SlashChip>
       </div>
     </div>
   );
 }
 
-function UserBubble({ children }: { children: React.ReactNode }) {
+// ---------- Turn 聚合（镜像 /research） ----------
+
+type DeployTurnData = {
+  userId: string | null;
+  userMessage: string | null;
+  events: FastclawTranscriptItem[];
+};
+
+function groupDeployTurns(items: FastclawTranscriptItem[]): DeployTurnData[] {
+  const turns: DeployTurnData[] = [];
+  let current: DeployTurnData | null = null;
+  for (const item of items) {
+    // system 通告（"部署任务已启动…"）不单独成轮，挂到当前轮的事件流里。
+    if (item.kind === "user") {
+      current = { userId: item.id, userMessage: item.content, events: [] };
+      turns.push(current);
+      continue;
+    }
+    if (!current) {
+      current = { userId: null, userMessage: null, events: [] };
+      turns.push(current);
+    }
+    current.events.push(item);
+  }
+  return turns;
+}
+
+function DeployTurn({
+  turn,
+  isLast,
+  phase,
+}: {
+  turn: DeployTurnData;
+  isLast: boolean;
+  phase: DeployPhase;
+}) {
+  // 流式但本轮还没有任何工具/文本时，给一句带 spinner 的等待提示，避免空白。
+  const showSpinner =
+    isLast &&
+    phase === "streaming" &&
+    !turn.events.some((it) => it.kind === "tool" || it.kind === "assistant");
+
   return (
-    <div className="flex flex-row-reverse items-start gap-3">
-      <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-primary/15 text-primary">
-        <User className="h-4 w-4" aria-hidden />
-      </span>
-      <div className="min-w-0 max-w-[80%]">
-        <div className="text-right text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-          You
+    <>
+      {turn.userMessage !== null ? (
+        <div className="flex items-start gap-3">
+          <AgentAvatar />
+          <div className="flex-1 whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">
+            {turn.userMessage}
+          </div>
         </div>
-        <div className="mt-1 rounded-xl bg-primary/10 px-3 py-2 text-sm leading-relaxed">
-          {children}
+      ) : null}
+
+      <div className="flex items-start gap-3">
+        <UserAvatar />
+        <div className="min-w-0 flex-1 space-y-3">
+          {turn.events.map((item) => (
+            <DeployEventBubble key={item.id} item={item} />
+          ))}
+          {showSpinner ? (
+            <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+              正在分析论文与目标主机环境，正在生成部署计划…
+            </div>
+          ) : null}
         </div>
       </div>
+    </>
+  );
+}
+
+function DeployEventBubble({ item }: { item: FastclawTranscriptItem }) {
+  switch (item.kind) {
+    case "system":
+      return (
+        <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
+          {item.content}
+        </div>
+      );
+    case "tool":
+      return <FastclawToolCard item={item} />;
+    case "progress":
+      return <FastclawProgressRow item={item} />;
+    case "assistant":
+      return (
+        <div className="flex items-start gap-3 rounded-xl border border-border bg-card px-4 py-3">
+          <span
+            className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground"
+            aria-hidden
+          >
+            <Bot className="h-3.5 w-3.5" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <DeployMarkdown>{item.content}</DeployMarkdown>
+          </div>
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
+function EmptyDeployConversation() {
+  const { t } = useI18n();
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+      <span
+        className="grid h-14 w-14 place-items-center rounded-2xl text-primary-foreground"
+        style={{ background: "var(--gradient-primary)" }}
+        aria-hidden
+      >
+        <Sparkles className="h-6 w-6" />
+      </span>
+      <p className="max-w-sm text-sm text-muted-foreground">{t("manager.chat.waitingDeploy")}</p>
     </div>
   );
 }
 
-function SlashChip({ children, onClick }: { children: React.ReactNode; onClick?: () => void }) {
+function AgentAvatar() {
+  return (
+    <span
+      className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg text-primary-foreground"
+      style={{ background: "var(--gradient-primary)" }}
+      aria-hidden
+    >
+      <Sparkles className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+function UserAvatar() {
+  return (
+    <span
+      className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-secondary text-muted-foreground"
+      aria-hidden
+    >
+      <User className="h-3.5 w-3.5" />
+    </span>
+  );
+}
+
+// ---------- Phase 徽章（镜像 /research，按 FastClaw 四态精简） ----------
+
+function DeployPhaseBadge({ phase }: { phase: DeployPhase }) {
+  const { t } = useI18n();
+  const meta = deployPhaseMeta(phase, t);
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+        meta.tone,
+      )}
+    >
+      <meta.Icon className={cn("h-3 w-3", meta.spin && "animate-spin")} aria-hidden />
+      {meta.label}
+    </span>
+  );
+}
+
+function deployPhaseMeta(
+  phase: DeployPhase,
+  t: (k: Parameters<ReturnType<typeof useI18n>["t"]>[0]) => string,
+): { label: string; Icon: typeof Loader2; tone: string; spin: boolean } {
+  switch (phase) {
+    case "idle":
+      return {
+        label: t("command.phase.idle"),
+        Icon: Sparkles,
+        tone: "border-border text-muted-foreground",
+        spin: false,
+      };
+    case "streaming":
+      return {
+        label: t("command.phase.streaming"),
+        Icon: Loader2,
+        tone: "border-primary/40 text-primary",
+        spin: true,
+      };
+    case "completed":
+      return {
+        label: t("command.phase.completed"),
+        Icon: CheckCircle2,
+        tone: "border-emerald-500/40 text-emerald-600 dark:text-emerald-400",
+        spin: false,
+      };
+    case "error":
+      return {
+        label: t("command.phase.failed"),
+        Icon: XCircle,
+        tone: "border-destructive/40 text-destructive",
+        spin: false,
+      };
+  }
+}
+
+function SlashChip({
+  children,
+  onClick,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onClick?: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[11px] text-muted-foreground hover:bg-secondary/80 hover:text-foreground transition-colors"
+      disabled={disabled}
+      className="rounded-full bg-secondary px-2.5 py-1 font-mono text-[11px] text-muted-foreground transition-colors hover:bg-secondary/80 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
     >
       {children}
     </button>
@@ -478,13 +703,7 @@ function DeployMarkdown({ children }: { children: string }) {
 
 // ---------- 右：指标 / Loss / Live logs ----------
 
-function TelemetryPanel({
-  active,
-  totalNodes,
-}: {
-  active: ReproductionRecord;
-  totalNodes: number;
-}) {
+function TelemetryPanel({ active }: { active: ReproductionRecord }) {
   const { t } = useI18n();
   const deviceId = active.device?.id;
 
