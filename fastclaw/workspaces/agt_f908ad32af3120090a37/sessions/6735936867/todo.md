@@ -1,7 +1,0 @@
-- [x] 确认 ROCKET 和 SGC 的 arXiv ID
-- [x] 入库 MiniRocket (arXiv:2012.08791)
-- [x] 入库 LightGCN (arXiv:2002.02126)
-- [x] 入库 SimpleAT (arXiv:2306.07613)
-- [x] 入库 ROCKET (arXiv:1910.13051)
-- [x] 入库 SGC (arXiv:1902.07153)
-- [x] 下载全部 5 篇 PDF
