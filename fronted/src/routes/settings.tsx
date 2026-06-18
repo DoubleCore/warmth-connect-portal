@@ -17,7 +17,8 @@ import { ProfileSection } from "@/components/hermes/ProfileSection";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useTheme } from "@/lib/theme/ThemeProvider";
-import { useCommandStream } from "@/hooks/use-command-stream";
+import { useFastclawStream } from "@/hooks/use-fastclaw-stream";
+import { getApiBaseUrl } from "@/lib/api-client";
 import { getProfile } from "@/api/profile";
 
 export const Route = createFileRoute("/settings")({
@@ -162,68 +163,63 @@ function PrefRow({
 // ---------- 飞书配对二维码 ----------
 
 /**
- * 通过 Hermes 为当前用户生成一个飞书配对链接，并把它渲染成二维码。
+ * 通过 FastClaw 为当前用户生成一个飞书配对链接，并把它渲染成二维码。
  *
  * 交互：
  *   - 初始：展示模糊占位 + "点击生成"。点击整张卡片或按钮触发请求。
  *   - 请求中：覆盖一层 loader，避免重复触发。
  *   - 成功：显示 SVG 二维码 + 可复制的链接文本。
- *   - 失败 / Hermes 没返回可识别的链接：提示 + 重试按钮。
+ *   - 失败 / FastClaw 没返回可识别的链接：提示 + 重试按钮。
  *
- * 与 Hermes 的交互策略：
- *   - 走现有 `useCommandStream` 链路（/api/command → Hermes），复用后端鉴权 & 日志。
- *   - Prompt 要求 Hermes **只回纯 URL**，便于前端稳定抽取。对 Hermes 的可靠性不做
- *     硬性依赖：若抽到不是合法链接，也能直接把原文本生成二维码（至少扫得到）。
+ * 与 FastClaw 的交互策略：
+ *   - 走 /api/fastclaw/chat/stream（researcher agent），复用后端鉴权 & 日志。
+ *   - Prompt 要求只回纯 URL，便于前端稳定抽取。对可靠性不做硬性依赖：
+ *     若抽到的不是合法链接，也能直接把原文本生成二维码（至少扫得到）。
  */
 function FeishuPairingCard() {
   const { t } = useI18n();
-  const command = useCommandStream({
-    entry: "settings_feishu",
-    baseContext: { currentPage: "settings", feature: "feishu_pair" },
-  });
+  const { phase, items, error, start } = useFastclawStream();
 
   const [copied, setCopied] = useState(false);
 
-  const isLoading =
-    command.phase === "connecting" ||
-    command.phase === "streaming" ||
-    command.phase === "awaiting_confirmation";
+  const isLoading = phase === "streaming";
 
-  // 从最近一次 final 事件里抽出二维码应当编码的内容。
-  const qrValue = useMemo(() => extractPairingPayload(command.transcript), [command.transcript]);
+  // 从 FastClaw 回复里抽出二维码应当编码的内容。
+  const qrValue = useMemo(() => extractPairingPayload(items), [items]);
 
   // 重新触发时清除复制状态
   useEffect(() => {
     setCopied(false);
   }, [qrValue]);
 
-  const hasResult = command.phase === "completed" && qrValue !== null;
-  const emptyResult = command.phase === "completed" && qrValue === null;
-  const hasError = command.phase === "failed" && command.error !== null;
+  const hasResult = phase === "completed" && qrValue !== null;
+  const emptyResult = phase === "completed" && qrValue === null;
+  const hasError = phase === "error" && error !== null;
 
   const handleTrigger = async () => {
     if (isLoading) return;
-    // Prompt 设计要点（参考 Hermes 官方 Feishu 集成文档）：
-    //  - Hermes 没有"一键返回配对链接"的 HTTP 指令，但它自带文件系统工具，
-    //    可以直接读 `~/.hermes/.env`（或等价配置）里的 FEISHU_APP_ID。
+    // Prompt 设计要点：
     //  - 飞书打开机器人会话的 deep link 是固定模板：
     //      https://applink.feishu.cn/client/chat/open?appId=<APP_ID>
     //    Lark 国际版对应 applink.larksuite.com。
-    //  - 约束 Hermes 只回纯 URL：前端 `firstUrl` 抽取器对 Markdown 代码块、
+    //  - 约束 agent 只回纯 URL：前端 `firstUrl` 抽取器对 Markdown 代码块、
     //    引号、解释性前后缀都能兜底，但让它直接给裸 URL 最稳。
     //  - 明确的"找不到就回 NO_LINK"分支比让它瞎编更安全，extract 逻辑会把
-    //    NO_LINK 当普通文本兜底给二维码（仍能扫到"NO_LINK"纯文本，
-    //    然后上层落到 empty 状态文案）。
-    await command.run(
-      [
-        "请返回用于通过飞书（Feishu）或 Lark 将当前 Hermes Agent 添加为机器人的配对链接。",
-        "步骤：",
-        "1. 从 ~/.hermes/.env（或等价的 Hermes 配置文件）读取 FEISHU_APP_ID。",
-        "2. 按模板拼接：https://applink.feishu.cn/client/chat/open?appId=<FEISHU_APP_ID>",
-        "   如果 FEISHU_DOMAIN=lark，则改用 https://applink.larksuite.com/client/chat/open?appId=<FEISHU_APP_ID>",
-        "只回复最终 URL，必须以 https:// 开头，不要加任何引号、Markdown、代码块或说明。",
-        "如果读不到 FEISHU_APP_ID 或本机未配置飞书机器人，直接回复 NO_LINK。",
-      ].join("\n"),
+    //    NO_LINK 当 empty 状态处理。
+    const message = [
+      "请返回用于通过飞书（Feishu）或 Lark 将本机 Agent 添加为机器人的配对链接。",
+      "步骤：",
+      "1. 查找本机飞书机器人配置中的 FEISHU_APP_ID（如环境变量或配置文件）。",
+      "2. 按模板拼接：https://applink.feishu.cn/client/chat/open?appId=<FEISHU_APP_ID>",
+      "   如果使用 Lark 国际版，则改用 https://applink.larksuite.com/client/chat/open?appId=<FEISHU_APP_ID>",
+      "只回复最终 URL，必须以 https:// 开头，不要加任何引号、Markdown、代码块或说明。",
+      "如果找不到 FEISHU_APP_ID 或本机未配置飞书机器人，直接回复 NO_LINK。",
+    ].join("\n");
+
+    await start(
+      `${getApiBaseUrl()}/api/fastclaw/chat/stream`,
+      { message, stream: true, agentRole: "researcher", sessionKey: "wcp-feishu-pair" },
+      { userMsg: "生成飞书配对二维码" },
     );
   };
 
@@ -304,7 +300,7 @@ function FeishuPairingCard() {
           <p className="text-muted-foreground">{t("settings.feishu.ready")}</p>
         ) : hasError ? (
           <p className="text-destructive">
-            {t("settings.feishu.error", { message: command.error?.message ?? "unknown" })}
+            {t("settings.feishu.error", { message: error ?? "unknown" })}
           </p>
         ) : emptyResult ? (
           <p className="text-muted-foreground">{t("settings.feishu.empty")}</p>
@@ -359,36 +355,28 @@ function FeishuPairingCard() {
 }
 
 /**
- * 从指令流里扒拉出最近一次 final 事件的"可配对字符串"。
+ * 从 FastClaw 回复里扒拉出"可配对字符串"。
  *
- * 优先抽成合法的 http/https URL，抽不到则退化为原始文本（仍能扫码转交）；
- * 再抽不到就返回 null，调用方会显示 "empty" 文案。
+ * 把 transcript 里所有 assistant 文本段拼接后，优先抽成合法的 http/https URL，
+ * 抽不到则退化为原始文本（仍能扫码转交）；再抽不到就返回 null，
+ * 调用方会显示 "empty" 文案。
  */
 function extractPairingPayload(
-  transcript: ReturnType<typeof useCommandStream>["transcript"],
+  items: ReturnType<typeof useFastclawStream>["items"],
 ): string | null {
-  for (let i = transcript.length - 1; i >= 0; i -= 1) {
-    const item = transcript[i];
-    if (item.kind !== "event") continue;
-    if (item.event.type !== "final") continue;
+  const raw = items
+    .filter((it): it is Extract<typeof it, { kind: "assistant" }> => it.kind === "assistant")
+    .map((it) => it.content)
+    .join("")
+    .trim();
 
-    // 1) message 字段最直接；它就是 Hermes run.completed 的 output
-    const fromMessage = typeof item.event.message === "string" ? item.event.message : null;
+  if (!raw) return null;
 
-    // 2) result 通常是 { output, usage }
-    const result = item.event.result as { output?: unknown } | null | undefined;
-    const fromResult = result && typeof result.output === "string" ? result.output : null;
+  // prompt 里约定"找不到回 NO_LINK"——把它归到 empty 分支
+  if (/^no[_\s-]?link$/i.test(raw)) return null;
 
-    const raw = (fromMessage ?? fromResult ?? "").trim();
-    if (!raw) return null;
-
-    // prompt 里约定"找不到回 NO_LINK"——把它归到 empty 分支
-    if (/^no[_\s-]?link$/i.test(raw)) return null;
-
-    // 首选抽出合法 URL；抽不到也回原文，至少能扫
-    return firstUrl(raw) ?? raw;
-  }
-  return null;
+  // 首选抽出合法 URL；抽不到也回原文，至少能扫
+  return firstUrl(raw) ?? raw;
 }
 
 function firstUrl(text: string): string | null {
@@ -397,13 +385,13 @@ function firstUrl(text: string): string | null {
 }
 
 /**
- * 当 Hermes 告诉我们这台主机没配置飞书 App（返回 NO_LINK）时，给运维/开发同事
- * 一条可直接复制的命令。Hermes 的交互式向导只能在主机终端里跑——我们没办法
+ * 当 FastClaw 告诉我们这台主机没配置飞书 App（返回 NO_LINK）时，给运维/开发同事
+ * 一条可直接复制的命令。交互式向导只能在主机终端里跑——我们没办法
  * 从浏览器可靠地驱动 pty，因此这里只做"展示 + 复制"，不触发任何自动执行。
  */
 function SetupCommandCard() {
   const { t } = useI18n();
-  const command = "hermes gateway setup";
+  const command = "fastclaw gateway setup";
   const [copied, setCopied] = useState(false);
 
   const handleCopy = async () => {
