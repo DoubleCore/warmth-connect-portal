@@ -90,6 +90,8 @@ export const messages = {
     "manager.backToDevices": "Back to devices",
     "manager.titlePrefix": "Manage Training",
     "manager.switchRun": "Switch run",
+    "manager.telemetry.show": "Show metrics",
+    "manager.telemetry.hide": "Hide metrics",
     "manager.empty.title": "No training runs yet",
     "manager.empty.hint":
       "Start a reproduction from the Device Manager to see a live command console here.",
@@ -500,6 +502,8 @@ export const messages = {
     "manager.backToDevices": "返回设备管理",
     "manager.titlePrefix": "训练管理",
     "manager.switchRun": "切换任务",
+    "manager.telemetry.show": "显示指标",
+    "manager.telemetry.hide": "隐藏指标",
     "manager.empty.title": "暂无训练任务",
     "manager.empty.hint": "在设备管理里启动一个复现任务，即可在这里看到命令控制台。",
     "manager.empty.cta": "去设备管理",
