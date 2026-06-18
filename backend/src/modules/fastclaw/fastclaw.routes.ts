@@ -1,7 +1,6 @@
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import type { Logger } from "pino";
 import { createRouter } from "@/shared/context.js";
-import { ok } from "@/shared/response.js";
 import { zv } from "@/shared/validator.js";
 import { baseLogger } from "@/shared/logger.js";
 import { fastclawChatSchema, fastclawDeploySchema, fastclawAnalyzeSchema } from "./fastclaw.dto.js";
@@ -12,11 +11,9 @@ import * as service from "./fastclaw.service.js";
  * 挂在 /api/fastclaw 上。
  *
  * 路由：
- *   POST /api/fastclaw/chat           非流式对话（返回完整 JSON）
  *   POST /api/fastclaw/chat/stream    流式对话（SSE）
  *   POST /api/fastclaw/deploy/stream  论文部署助手（SSE）
  *   POST /api/fastclaw/analyze/stream 论文分析助手（SSE）
- *   GET  /api/fastclaw/ping           FastClaw 健康检查
  */
 export const fastclawRouter = createRouter();
 
@@ -116,17 +113,6 @@ function attachClientAbortHandler(
   return () => signal.removeEventListener("abort", onAbort);
 }
 
-// ---------- 非流式对话 ----------
-
-fastclawRouter.post("/chat", zv("json", fastclawChatSchema), async (c) => {
-  const body = c.req.valid("json");
-  const logger = c.get("logger") ?? baseLogger;
-  const requestId = c.get("requestId");
-
-  const result = await service.chat({ ...body, stream: false }, requestId, logger);
-  return ok(c, result);
-});
-
 // ---------- 流式对话 (SSE) ----------
 
 fastclawRouter.post("/chat/stream", zv("json", fastclawChatSchema), async (c) => {
@@ -158,14 +144,6 @@ fastclawRouter.post("/chat/stream", zv("json", fastclawChatSchema), async (c) =>
       await closeSseStream(stream, state);
     }
   });
-});
-
-// ---------- 健康检查 ----------
-
-fastclawRouter.get("/ping", async (c) => {
-  const logger = c.get("logger") ?? baseLogger;
-  const reachable = await service.ping(logger);
-  return ok(c, { reachable });
 });
 
 // ---------- 部署对话 ----------

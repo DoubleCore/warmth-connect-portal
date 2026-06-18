@@ -12,7 +12,6 @@ import {
 import { FastClawError } from "./fastclaw.client.js";
 import type {
   FastClawChatInput,
-  FastClawChatResponseDto,
   FastClawDeployInput,
   FastClawAnalyzeInput,
 } from "./fastclaw.dto.js";
@@ -74,29 +73,6 @@ function resolveAgentId(input: FastClawChatInput): string | undefined {
 }
 
 /**
- * 非流式对话。直接返回完整回复。
- */
-export async function chat(
-  input: FastClawChatInput,
-  requestId: string,
-  logger: Logger,
-): Promise<FastClawChatResponseDto> {
-  ensureConfigured();
-
-  const messages = buildMessages(input);
-  const result = await fastclawClient.chat(messages, logger, {
-    agentId: resolveAgentId(input),
-    sessionKey: input.sessionKey,
-  });
-
-  return {
-    content: result.content,
-    requestId,
-    usage: result.usage,
-  };
-}
-
-/**
  * 流式对话。返回 AsyncIterable<FastClawStreamChunk>。
  * 路由层负责把它转成 SSE 推给前端。
  */
@@ -121,13 +97,6 @@ export async function chatStream(
     agentId: resolveAgentId(input),
     sessionKey: input.sessionKey,
   });
-}
-
-/**
- * 健康检查
- */
-export async function ping(logger: Logger): Promise<boolean> {
-  return fastclawClient.ping(logger);
 }
 
 // ---------- Deploy：论文部署助手 ----------
