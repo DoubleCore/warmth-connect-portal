@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Shell } from "@/components/hermes/Shell";
-import { CommandPrompt } from "@/components/hermes/CommandPrompt";
+import { CommandCenterHome } from "@/components/hermes/CommandCenterHome";
 import { listPapers } from "@/api/papers";
 import { listReproductionRecords } from "@/api/reproduction";
 
@@ -29,7 +29,7 @@ export const Route = createFileRoute("/")({
 function Index() {
   return (
     <Shell active="Command">
-      <CommandPrompt />
+      <CommandCenterHome />
     </Shell>
   );
 }
