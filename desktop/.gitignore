@@ -1,8 +1,0 @@
-# Build + dependency artifacts
-node_modules/
-release/
-resources-staged/
-logs/
-
-# Electron-builder cache
-.cache/

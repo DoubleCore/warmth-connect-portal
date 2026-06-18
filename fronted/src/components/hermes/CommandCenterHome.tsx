@@ -1,9 +1,6 @@
-import { useState } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Sparkles,
-  CornerDownLeft,
   Search,
   FileText,
   MessageSquare,
@@ -18,7 +15,6 @@ import type { MessageKey } from "@/lib/i18n/messages";
 import { ApiError, isNetworkError } from "@/lib/api-client";
 import { listPapers } from "@/api/papers";
 import { listReproductionRecords } from "@/api/reproduction";
-import { useMainCommandStream } from "@/hooks/command-stream-context";
 import type { PaperListItem } from "@/types/paper";
 import type { ReproductionRecord, ReproductionStatus } from "@/types/reproduction";
 
@@ -52,31 +48,15 @@ const statusAccent: Record<ReproductionStatus, string> = {
   paused: "text-muted-foreground",
 };
 
-export function CommandPrompt() {
-  const [value, setValue] = useState("");
+/**
+ * 命令中心首页（去 Hermes 化后）。
+ *
+ * 原来的 CommandPrompt 自带一个把指令打到 Hermes command 流的输入框；command
+ * 模块已整体移除，这里只保留纯展示部分：标题、快捷入口、最近活动。需要 Agent
+ * 对话的入口现在分布在各业务页（论文分析 / manager 部署，都走 FastClaw）。
+ */
+export function CommandCenterHome() {
   const { t } = useI18n();
-  const navigate = useNavigate();
-
-  // 主页与 /research 子页面共享同一条指令流（见 command-stream-context.tsx）。
-  // 主页的输入框负责"发送 + 跳转"；/research 负责"展示进度 + 结果 + 追问"。
-  const command = useMainCommandStream();
-
-  const isBusy =
-    command.phase === "connecting" ||
-    command.phase === "streaming" ||
-    command.phase === "awaiting_confirmation";
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed || isBusy) return;
-    // 清空输入框，保留上一次值可能会让用户误以为指令没发出去
-    setValue("");
-    // 先导航，后发起 run —— 这样 /research 挂载时就已经有最新的 user bubble，
-    // 避免用户在主页短暂看到自己的消息后才被切走。
-    void navigate({ to: "/research" });
-    await command.run(trimmed);
-  };
 
   return (
     <div className="mx-auto w-full max-w-4xl px-8 py-14">
@@ -85,42 +65,7 @@ export function CommandPrompt() {
         <p className="mt-4 text-muted-foreground">{t("home.subtitle")}</p>
       </div>
 
-      <form onSubmit={handleSubmit} className="mt-10 group relative" role="search">
-        <div
-          className="absolute -inset-px rounded-2xl opacity-60 blur-md transition-opacity group-focus-within:opacity-100"
-          style={{ background: "var(--gradient-primary)" }}
-          aria-hidden
-        />
-        <div className="relative flex items-center gap-3 rounded-2xl border border-border bg-card px-5 py-4">
-          <Sparkles className="h-5 w-5 text-primary" aria-hidden />
-          <label htmlFor="command-prompt" className="sr-only">
-            {t("home.inputLabel")}
-          </label>
-          <input
-            id="command-prompt"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-            placeholder={isBusy ? t("command.inputPlaceholderBusy") : t("home.inputPlaceholder")}
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground disabled:opacity-60"
-            autoComplete="off"
-            disabled={isBusy}
-          />
-          <button
-            type="submit"
-            aria-label={t("home.submit")}
-            className="rounded-lg bg-secondary p-2 text-muted-foreground transition-colors hover:bg-primary hover:text-primary-foreground disabled:opacity-50"
-            disabled={!value.trim() || isBusy}
-          >
-            {isBusy ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-            ) : (
-              <CornerDownLeft className="h-4 w-4" aria-hidden />
-            )}
-          </button>
-        </div>
-      </form>
-
-      <div className="mt-8 grid grid-cols-2 gap-4 md:grid-cols-4">
+      <div className="mt-10 grid grid-cols-2 gap-4 md:grid-cols-4">
         {quickActions.map(({ labelKey, icon: Icon, to }) => (
           <Link
             key={labelKey}

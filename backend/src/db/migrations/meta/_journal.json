@@ -64,6 +64,13 @@
       "when": 1779523200000,
       "tag": "0008_host_tracking",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1780000000000,
+      "tag": "0009_drop_commands",
+      "breakpoints": true
     }
   ]
 }
