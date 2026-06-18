@@ -106,10 +106,15 @@ export async function chatStream(
 ): Promise<AsyncIterable<FastClawStreamChunk>> {
   ensureConfigured();
 
-  if (input.agentRole === "deploy") {
-    // 不要为缺失的 sessionKey 伪造时间戳 key——那样每轮请求都是不同的 key，
-    // FastClaw 会每轮开新会话、丢上下文，比直接透传 undefined 还糟。
-    // 多轮部署追问由前端缓存并回传稳定 sessionKey（见 use-fastclaw-deploy）。
+  if (input.agentRole === "deploy" || input.agentRole === "researcher") {
+    // deploy 与 researcher 都走 Web Chat 流（/api/chat/stream）：
+    //   - 这两个 agent 都依赖工具调用 / 子 agent，OpenAI 兼容的
+    //     /v1/chat/completions 端点不会稳定暴露工具事件，甚至连最终回答都可能
+    //     吞掉（research agent 尤甚）——只有 webChatStream 会把 tool_call /
+    //     tool_result / subagent_progress 结构化事件透传出来。
+    //   - 不要为缺失的 sessionKey 伪造时间戳 key——那样每轮请求都是不同的 key，
+    //     FastClaw 会每轮开新会话、丢上下文。稳定 sessionKey 由前端缓存并回传
+    //     （deploy 见 use-fastclaw-deploy，researcher 见 use-fastclaw-research）。
     return fastclawClient.webChatStream(input.message, logger, {
       agentId: resolveAgentId(input),
       sessionKey: input.sessionKey,

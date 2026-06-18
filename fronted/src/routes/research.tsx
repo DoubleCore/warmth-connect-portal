@@ -33,10 +33,6 @@ export const Route = createFileRoute("/research")({
   component: ResearchPage,
 });
 
-const RESEARCH_SYSTEM_PROMPT =
-  "你是论文搜索助手。帮助用户在研究语料中检索、对比并归纳论文，" +
-  "回答时给出清晰的要点与来源标题。";
-
 type ResearchPhase = ReturnType<typeof useFastClawResearch>["phase"];
 
 function ResearchPage() {
@@ -61,7 +57,7 @@ function ResearchPage() {
     const v = draft.trim();
     if (!v || isBusy) return;
     setDraft("");
-    stream.send(v, { systemPrompt: RESEARCH_SYSTEM_PROMPT });
+    stream.send(v);
   };
 
   return (
