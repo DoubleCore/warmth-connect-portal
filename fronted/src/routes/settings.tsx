@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Shell } from "@/components/hermes/Shell";
 import { ProfileSection } from "@/components/hermes/ProfileSection";
+import { LlmConfigSection } from "@/components/hermes/LlmConfigSection";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n/I18nProvider";
 import { useTheme } from "@/lib/theme/ThemeProvider";
@@ -98,6 +99,7 @@ function SettingsPage() {
         <div className="mt-8 grid gap-6 lg:grid-cols-[1fr_360px]">
           <div className="flex flex-col gap-6">
             <ProfileSection />
+            <LlmConfigSection />
 
             <section
               aria-labelledby="prefs-heading"

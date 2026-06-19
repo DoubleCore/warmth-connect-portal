@@ -13,7 +13,7 @@
 //   5. Write all logs to app.getPath("userData")/logs.
 //   6. Kill every child on quit so nothing lingers.
 
-const { app, BrowserWindow, shell, dialog } = require("electron");
+const { app, BrowserWindow, shell, dialog, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
 const http = require("node:http");
@@ -56,9 +56,11 @@ const FRONTEND_DIR = path.join(RES, "frontend");
 const FASTCLAW_EXE = path.join(RES, "fastclaw", "fastclaw.exe");
 const FASTCLAW_SEED = path.join(RES, "fastclaw-seed");
 
-// FastClaw identity baked into the package (user-approved). The bundled
-// FASTCLAW_HOME is seeded from FASTCLAW_SEED, which contains the agents these
-// IDs and the API key point at. Keep in sync with the seeded fastclaw.db.
+// FastClaw gateway auth token + agent IDs baked into the package. NOTE: this
+// is the local GATEWAY token (backend↔gateway Bearer auth), bound to the seeded
+// fastclaw.db's apikeys table — NOT the LLM provider secret. The sensitive LLM
+// provider key lives in the seeded db's provider row and is what users override
+// via the in-app settings (see backend modules/llm-config).
 const FASTCLAW_API_KEY = "fc_a58ceb3819106b12849f86d95e8f39de0e250f3a6011ecdba66f25f18da1b744";
 const FASTCLAW_AGENTS = {
   FASTCLAW_AGENT_ID: "agt_f908ad32af3120090a37",
@@ -110,6 +112,8 @@ process.on("unhandledRejection", (reason) => {
 // ---- Child process registry -------------------------------------------------
 /** @type {import("node:child_process").ChildProcess[]} */
 const children = [];
+/** @type {import("node:child_process").ChildProcess | null} */
+let fastclawChild = null;
 let quitting = false;
 
 function track(child, name) {
@@ -137,6 +141,9 @@ function backendEnv() {
     HOST_TRACKING_ENABLED: "false",
     FASTCLAW_BASE_URL: `http://127.0.0.1:${FASTCLAW_PORT}`,
     FASTCLAW_API_KEY,
+    // llm-config module opens <FASTCLAW_HOME>/fastclaw.db to read/write the
+    // user's custom API/model into FastClaw's configs table.
+    FASTCLAW_HOME,
     ...FASTCLAW_AGENTS,
   };
 }
@@ -269,7 +276,37 @@ function startFastclaw() {
   });
   child.stdout.pipe(stream);
   child.stderr.pipe(stream);
+  fastclawChild = child;
   track(child, "fastclaw");
+}
+
+/**
+ * Restart only the FastClaw gateway child, leaving backend/frontend untouched.
+ * Triggered via IPC after the user saves a custom API/model in settings — the
+ * gateway loads configs into memory at startup, so a db edit needs a restart.
+ * Returns true once a fresh gateway answers /, false on timeout.
+ */
+async function restartFastclaw() {
+  log("[fastclaw] restart requested (config changed)");
+  if (fastclawChild && fastclawChild.exitCode === null && fastclawChild.pid) {
+    const pid = fastclawChild.pid;
+    try {
+      if (process.platform === "win32") {
+        spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { windowsHide: true });
+      } else {
+        fastclawChild.kill("SIGTERM");
+      }
+    } catch (err) {
+      log(`[fastclaw] failed to kill pid=${pid} for restart: ${err.message}`);
+    }
+  }
+  fastclawChild = null;
+  // Give the OS a moment to release port 18953 before rebinding.
+  await new Promise((r) => setTimeout(r, 1000));
+  startFastclaw();
+  const ok = await waitForHttp(`http://127.0.0.1:${FASTCLAW_PORT}/`, { tries: 30 });
+  log(`[fastclaw] restart complete, healthy=${ok}`);
+  return ok;
 }
 
 // ---- Preflight --------------------------------------------------------------
@@ -420,6 +457,18 @@ async function boot() {
 // stale-lock recovery if multi-launch guarding is actually needed.
 app.whenReady().then(boot).catch((err) => {
   log(`[FATAL] boot threw: ${err && err.stack ? err.stack : String(err)}`);
+});
+
+// Renderer (settings page) calls this after saving a custom API/model so the
+// FastClaw gateway reloads its configs. Returns { ok } so the UI can report.
+ipcMain.handle("fastclaw:restart", async () => {
+  try {
+    const ok = await restartFastclaw();
+    return { ok };
+  } catch (err) {
+    log(`[fastclaw] restart IPC failed: ${err && err.stack ? err.stack : String(err)}`);
+    return { ok: false, error: String(err && err.message ? err.message : err) };
+  }
 });
 
 app.on("activate", () => {
