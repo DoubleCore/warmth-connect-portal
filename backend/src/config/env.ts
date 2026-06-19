@@ -35,6 +35,12 @@ const envSchema = z.object({
   FASTCLAW_AGENT_PAPER_ANALYSE: optionalString(),
   /** 论文研究/阅读 Agent */
   FASTCLAW_AGENT_RESEARCHER: optionalString(),
+  /**
+   * FastClaw 数据目录（FASTCLAW_HOME）。桌面端由 Electron 主进程注入，指向
+   * %APPDATA%\HermesAI\fastclaw；这样 llm-config 模块能定位 fastclaw.db 并
+   * 直接读写其 `configs` 表（用户自定义 API/模型）。留空 → 该功能不可用。
+   */
+  FASTCLAW_HOME: optionalString(),
 
   // ---------- RAG LLM / Embedding ----------
   // 详见 Design_SQLite_Abstract_RAG.md §7 / §9 / §11
