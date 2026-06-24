@@ -80,25 +80,9 @@ export type FastClawStreamChunk = {
   event?: FastClawStreamEvent;
 };
 
-export type FastClawChatResult = {
-  content: string;
-  usage?: {
-    promptTokens?: number;
-    completionTokens?: number;
-    totalTokens?: number;
-  };
-};
-
 export type FastClawClient = {
   /** 是否已配置（有 BASE_URL 即视为可用，KEY 可选） */
   isConfigured(): boolean;
-
-  /** 非流式对话 */
-  chat(
-    messages: FastClawMessage[],
-    logger?: Logger,
-    options?: FastClawChatOptions,
-  ): Promise<FastClawChatResult>;
 
   /** 流式对话，返回 AsyncIterable 逐 chunk 消费 */
   chatStream(
@@ -113,9 +97,6 @@ export type FastClawClient = {
     logger?: Logger,
     options?: FastClawChatOptions,
   ): Promise<AsyncIterable<FastClawStreamChunk>>;
-
-  /** 健康检查 */
-  ping(logger?: Logger): Promise<boolean>;
 };
 
 // ---------- 内部工具函数 ----------
@@ -159,19 +140,6 @@ function resolveModel(options?: FastClawChatOptions): string {
 
 // ---------- OpenAI 兼容响应形状 ----------
 
-type ChatCompletionResp = {
-  id?: string;
-  choices?: Array<{
-    message?: { content?: string; role?: string };
-    finish_reason?: string;
-  }>;
-  usage?: {
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-  };
-};
-
 type WebChatStreamEvent = {
   type:
     | "content"
@@ -207,87 +175,6 @@ export function createFastClawClient(): FastClawClient {
   return {
     isConfigured(): boolean {
       return Boolean(baseUrl);
-    },
-
-    async chat(messages, logger, options) {
-      if (messages.length === 0) {
-        throw new FastClawError("FASTCLAW_UPSTREAM_ERROR", "消息列表不能为空。", 400);
-      }
-
-      const url = joinUrl(baseUrl, "/v1/chat/completions");
-      const body: Record<string, unknown> = {
-        model: resolveModel(options),
-        messages,
-        stream: false,
-      };
-      if (options?.temperature !== undefined) body.temperature = options.temperature;
-      if (options?.maxTokens !== undefined) body.max_tokens = options.maxTokens;
-
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
-      const started = Date.now();
-
-      let res: Response;
-      try {
-        res = await fetch(url, {
-          method: "POST",
-          headers: buildHeaders({
-            sessionKey: options?.sessionKey,
-            agentId: resolveAgentId(options),
-          }),
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-      } catch (err) {
-        clearTimeout(timer);
-        const durationMs = Date.now() - started;
-        if (isAbortError(err, controller.signal)) {
-          logger?.warn({ url, durationMs, timeoutMs }, "FastClaw call timed out");
-          throw new FastClawError("FASTCLAW_TIMEOUT", "FastClaw 调用超时，请稍后重试。", 504);
-        }
-        logger?.error({ err, url, durationMs }, "FastClaw call failed");
-        throw new FastClawError(
-          "FASTCLAW_CONNECTION_FAILED",
-          "无法连接 FastClaw 服务，请确认是否已启动。",
-          502,
-          { url, cause: (err as Error)?.message },
-        );
-      }
-      clearTimeout(timer);
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        logger?.warn({ url, status: res.status, body: text.slice(0, 1000) }, "FastClaw non-2xx");
-        throw new FastClawError(
-          "FASTCLAW_UPSTREAM_ERROR",
-          `FastClaw 返回 HTTP ${res.status}。`,
-          502,
-          { status: res.status, body: text.slice(0, 2000) },
-        );
-      }
-
-      let data: ChatCompletionResp;
-      try {
-        data = (await res.json()) as ChatCompletionResp;
-      } catch {
-        throw new FastClawError("FASTCLAW_UPSTREAM_ERROR", "FastClaw 响应不是合法 JSON。", 502);
-      }
-
-      const content = data.choices?.[0]?.message?.content;
-      if (typeof content !== "string" || content.trim().length === 0) {
-        throw new FastClawError("FASTCLAW_UPSTREAM_ERROR", "FastClaw 返回内容为空。", 502);
-      }
-
-      return {
-        content,
-        usage: data.usage
-          ? {
-              promptTokens: data.usage.prompt_tokens,
-              completionTokens: data.usage.completion_tokens,
-              totalTokens: data.usage.total_tokens,
-            }
-          : undefined,
-      };
     },
 
     async chatStream(messages, logger, options) {
@@ -431,26 +318,6 @@ export function createFastClawClient(): FastClawClient {
         logger,
         "web-chat",
       );
-    },
-
-    async ping(logger) {
-      // FastClaw 暴露 /health 做存活探测。
-      const url = joinUrl(baseUrl, "/health");
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 3000);
-      try {
-        const res = await fetch(url, {
-          method: "GET",
-          headers: buildHeaders(),
-          signal: controller.signal,
-        });
-        clearTimeout(timer);
-        return res.ok;
-      } catch (err) {
-        clearTimeout(timer);
-        logger?.warn({ err, url }, "FastClaw ping failed");
-        return false;
-      }
     },
   };
 }
