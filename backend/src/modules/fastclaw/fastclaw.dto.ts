@@ -37,30 +37,6 @@ export const fastclawChatSchema = z.object({
 
 export type FastClawChatInput = z.infer<typeof fastclawChatSchema>;
 
-// ---------- 响应 ----------
-
-export type FastClawChatResponseDto = {
-  /** 非流式时返回完整内容 */
-  content?: string;
-  /** 流式时返回 stream URL */
-  streamUrl?: string;
-  /** 请求追踪 ID */
-  requestId: string;
-  usage?: {
-    promptTokens?: number;
-    completionTokens?: number;
-    totalTokens?: number;
-  };
-};
-
-export type FastClawStreamEventDto =
-  | { type: "delta"; content: string }
-  | { type: "tool_start"; toolName: string; displayName: string; arguments?: string }
-  | { type: "tool_result"; toolName: string; summary: string; result?: unknown }
-  | { type: "progress"; phase: string; iteration?: number; max?: number }
-  | { type: "done" }
-  | { type: "error"; error: string };
-
 // ---------- Deploy (论文部署助手) ----------
 
 export const fastclawDeploySchema = z.object({
