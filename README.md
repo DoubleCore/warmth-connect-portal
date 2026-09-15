@@ -2,17 +2,34 @@
 
 # Hermes AI Research Command Center
 
+### Cheetah Youth Program Project
+
 **Research Workflow · RAG · GPU Operations · AI Agents**
 
+![Program](https://img.shields.io/badge/Project-Cheetah%20Youth%20Program-F59E0B?style=flat-square)
 ![React](https://img.shields.io/badge/Frontend-React%2019-61DAFB?style=flat-square&logo=react&logoColor=black)
 ![TanStack](https://img.shields.io/badge/Framework-TanStack-FF4154?style=flat-square)
 ![Hono](https://img.shields.io/badge/Backend-Hono-E36002?style=flat-square)
 ![SQLite](https://img.shields.io/badge/Data-SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)
 ![Agents](https://img.shields.io/badge/Agents-FastClaw-111827?style=flat-square)
 
-A local-first research command center that connects **paper management, semantic search, AI-assisted reading, reproduction tracking, and compute operations** in one workflow.
+A full-stack AI product that grew out of the **Cheetah Youth Program** and evolved into a local-first research command center connecting papers, semantic search, AI agents, reproduction tracking, and compute operations.
 
 </div>
+
+## Program Context
+
+This project was developed through the **Cheetah Youth Program** as a real-world product and engineering exercise rather than a standalone coding demo.
+
+The program context pushed the project beyond interface design and into a complete delivery loop:
+
+- translating activity requirements into product structure;
+- designing frontend and backend boundaries;
+- connecting structured data with real user workflows;
+- integrating AI capabilities into a usable system;
+- validating the system through iterative engineering and packaging.
+
+The repository later evolved into **Hermes AI Research Command Center**, preserving the original product-engineering discipline while moving toward research tooling and AI-agent orchestration.
 
 ## Why This Project Exists
 
@@ -106,16 +123,12 @@ The frontend and backend are intentionally runnable independently. Agent feature
 /api/fastclaw               Agent streaming / deployment helpers
 ```
 
-## Engineering Focus
+## What This Project Trains
 
-This repository is not only a UI prototype. It is used to practice a complete product-engineering loop:
+This project is one of the main long-form projects in my **Professional AI Player** portfolio. It trains the full path from activity-driven product work to a maintainable AI engineering system:
 
-**requirements → interface → backend contracts → data model → agent integration → validation → packaging**
-
-That makes it one of the main long-form projects in my **Professional AI Player** training portfolio.
+**requirements → product structure → interface → backend contracts → data model → AI integration → validation → packaging**
 
 ## Status
 
-`Active Development` · `Full-stack` · `AI Agent Integration` · `Research Tooling`
-
-The project is evolving toward a reliable personal research operating environment rather than a one-off demo.
+`Cheetah Youth Program` · `Active Development` · `Full-stack` · `AI Agent Integration` · `Research Tooling`
